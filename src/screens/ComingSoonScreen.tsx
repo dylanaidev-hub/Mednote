@@ -4,6 +4,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
+import PrimaryButton from '../components/PrimaryButton';
 
 export default function ComingSoonScreen() {
     const navigation = useNavigation<any>();
@@ -35,13 +36,11 @@ export default function ComingSoonScreen() {
                     Đội ngũ MedNote đang làm việc chăm chỉ để mang tính năng này đến với bạn trong bản cập nhật sớm nhất.
                 </Text>
 
-                <TouchableOpacity
-                    style={styles.primaryBtn}
+                <PrimaryButton
+                    title="Quay lại"
+                    icon="arrow-back-outline"
                     onPress={handleBack}
-                    activeOpacity={0.85}
-                >
-                    <Text style={styles.primaryBtnText}>Quay lại</Text>
-                </TouchableOpacity>
+                />
             </View>
         </View>
     );

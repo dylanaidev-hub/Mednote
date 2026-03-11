@@ -15,6 +15,7 @@ export interface MedicineEntry {
     dosage?: string;
     source?: 'prescription' | 'routine';
     prescriptionId?: string;
+    weekdays?: number[]; // 0=CN, 1=T2, 2=T3 ... 6=T7 (JS Date.getDay())
 }
 
 export const SESSION_DEFAULTS: Record<string, string> = {

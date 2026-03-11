@@ -6,11 +6,14 @@ import {
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, CommonActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Haptics from 'expo-haptics';
 
 import { MedicineEntry, SESSIONS, SESSION_DEFAULTS } from '../types/medicine';
+import { formatLocalDate } from '../utils/dateUtils';
+import { useMedContext, Prescription } from '../context/MedContext';
+import PrimaryButton from '../components/PrimaryButton';
 import SessionTimeSelector from '../components/SessionTimeSelector';
 
 const blankMed = (): MedicineEntry => ({
@@ -26,17 +29,29 @@ const SP = { xs: 4, sm: 8, md: 16, lg: 24, xl: 32 };
 
 export default function ManualAddScreen() {
     const navigation = useNavigation<any>();
+    const route = useRoute<any>();
     const insets = useSafeAreaInsets();
+    const { updatePrescription } = useMedContext();
+
+    // ── Edit mode detection ───────────────────────────────────────
+    const editMode = route.params?.mode === 'edit';
+    const editPrescription: Prescription | undefined = route.params?.prescription;
 
     // ── Prescription-level state ──────────────────────────────────
-    const [hospital, setHospital] = useState('');
-    const [date, setDate] = useState(new Date());
+    const [hospital, setHospital] = useState(editPrescription?.hospital || '');
+    const [date, setDate] = useState(
+        editPrescription ? new Date(editPrescription.date) : new Date()
+    );
     const [showDatePicker, setShowDatePicker] = useState(false);
-    const [duration, setDuration] = useState('7');
+    const [duration, setDuration] = useState(
+        editPrescription ? String(editPrescription.duration) : '7'
+    );
 
     // ── Medicine list state (multi-med loop) ──────────────────────
-    const [medicines, setMedicines] = useState<MedicineEntry[]>([blankMed()]);
-    const [currentMedIndex, setCurrentMedIndex] = useState(0); // which med is being edited
+    const [medicines, setMedicines] = useState<MedicineEntry[]>(
+        editPrescription?.medicines || [blankMed()]
+    );
+    const [currentMedIndex, setCurrentMedIndex] = useState(0);
 
     const units = ['Viên', 'Gói', 'Lọ', 'ml', 'ống'];
     const mealTimings = ['Trước ăn', 'Sau ăn', 'Khi đói', 'Tùy ý'];
@@ -87,24 +102,56 @@ export default function ManualAddScreen() {
         setCurrentMedIndex(prev => Math.max(0, prev - 1));
     };
 
-    // ── "Xác nhận đơn thuốc" — submit all ────────────────────────
-    const handleSubmit = () => {
+    // ── "Xác nhận đơn thuốc" / "Lưu thay đổi" ────────────────────
+    const [isSaving, setIsSaving] = useState(false);
+    const handleSubmit = async () => {
         Keyboard.dismiss();
         if (!validateCurrentMed()) return;
 
-        // Validate hospital as well
         if (!hospital.trim()) {
             Alert.alert('Thiếu thông tin', 'Vui lòng nhập tên nơi khám / bệnh viện.');
             return;
         }
 
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        navigation.navigate('ManualAddReview', {
-            hospital,
-            date: date.toISOString(),
-            duration: parseInt(duration) || 7,
-            medicines,
-        });
+
+        if (editMode && editPrescription) {
+            // EDIT MODE: call updatePrescription directly
+            setIsSaving(true);
+            try {
+                const updated: Prescription = {
+                    ...editPrescription,
+                    hospital,
+                    date: formatLocalDate(date),
+                    duration: parseInt(duration) || 7,
+                    medicines,
+                };
+                await updatePrescription(updated);
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                navigation.dispatch(
+                    CommonActions.reset({
+                        index: 0,
+                        routes: [{
+                            name: 'MainTabs',
+                            state: { routes: [{ name: 'Records' }] },
+                        }],
+                    })
+                );
+            } catch {
+                Alert.alert('Lỗi', 'Không thể cập nhật đơn thuốc.');
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            } finally {
+                setIsSaving(false);
+            }
+        } else {
+            // CREATE MODE: navigate to review
+            navigation.navigate('ManualAddReview', {
+                hospital,
+                date: formatLocalDate(date),
+                duration: parseInt(duration) || 7,
+                medicines,
+            });
+        }
     };
 
     const showError = med.hasError && (!med.name.trim() || !med.quantity.trim() || med.frequency.length === 0 || !med.mealTiming);
@@ -117,7 +164,7 @@ export default function ManualAddScreen() {
                 <TouchableOpacity onPress={() => navigation.goBack()} style={s.closeBtn}>
                     <Ionicons name="close" size={22} color="#374151" />
                 </TouchableOpacity>
-                <Text style={s.headerTitle}>Thêm đơn thuốc</Text>
+                <Text style={s.headerTitle}>{editMode ? 'Cập nhật đơn thuốc' : 'Thêm đơn thuốc'}</Text>
             </View>
 
             {/* ══ Scrollable Form ══════════════════════════════════ */}
@@ -346,24 +393,21 @@ export default function ManualAddScreen() {
             {/* ══ Sticky Bottom CTAs ═══════════════════════════════ */}
             <View style={[s.footer, { paddingBottom: Math.max(insets.bottom, 20) }]}>
                 {/* Secondary: Save current med + add another */}
-                <TouchableOpacity
-                    style={s.secondaryBtn}
+                <PrimaryButton
+                    variant="outline"
+                    title="Lưu & Thêm thuốc khác"
+                    icon="add-circle-outline"
                     onPress={handleSaveAndAddMore}
-                    activeOpacity={0.75}
-                >
-                    <Ionicons name="add-circle-outline" size={18} color="#2563eb" />
-                    <Text style={s.secondaryBtnText}>Lưu & Thêm thuốc khác</Text>
-                </TouchableOpacity>
+                />
 
                 {/* Primary: Submit all */}
-                <TouchableOpacity
-                    style={s.primaryBtn}
+                <PrimaryButton
+                    title={isSaving ? 'Đang lưu...' : editMode ? 'Lưu thay đổi' : 'Xác nhận đơn thuốc'}
+                    icon="checkmark-circle-outline"
                     onPress={handleSubmit}
-                    activeOpacity={0.85}
-                >
-                    <Ionicons name="checkmark-circle-outline" size={20} color="#fff" />
-                    <Text style={s.primaryBtnText}>Xác nhận đơn thuốc</Text>
-                </TouchableOpacity>
+                    loading={isSaving}
+                    disabled={isSaving}
+                />
             </View>
         </View>
     );

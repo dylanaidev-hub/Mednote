@@ -15,6 +15,27 @@ interface SessionTimeSelectorProps {
 
 const SP = { xs: 4, sm: 8, md: 16, lg: 24, xl: 32 };
 
+// ─── Helpers ─────────────────────────────────────────────────────
+
+/** Check if a key is a sub-time of a session (e.g. "Sáng_sub_171000") */
+function isSubTime(key: string): boolean {
+    return key.includes('_sub_');
+}
+
+/** Get the parent session ID from a sub-time key */
+function getParentSession(key: string): string {
+    return key.split('_sub_')[0];
+}
+
+/** Get all sub-time keys for a given session */
+function getSubTimesForSession(sessionId: string, sessionTimes: Record<string, string>): string[] {
+    return Object.keys(sessionTimes).filter(k =>
+        isSubTime(k) && getParentSession(k) === sessionId
+    );
+}
+
+// ─── Component ───────────────────────────────────────────────────
+
 export default function SessionTimeSelector({
     frequency,
     sessionTimes,
@@ -24,32 +45,7 @@ export default function SessionTimeSelector({
     const [showTimePicker, setShowTimePicker] = useState(false);
     const [pickerConfig, setPickerConfig] = useState<{ timeId: string, initialTime: string, title: string } | null>(null);
 
-    const toggleFrequency = (timeId: string) => {
-        const alreadySelected = frequency.includes(timeId);
-        let newFreq: string[];
-        let newSessionTimes = { ...sessionTimes };
-
-        if (alreadySelected) {
-            newFreq = frequency.filter(t => t !== timeId);
-            delete newSessionTimes[timeId]; // Clean up so it doesn't appear in saved data
-        } else {
-            newFreq = [...frequency, timeId];
-            if (!newSessionTimes[timeId] && SESSION_DEFAULTS[timeId]) {
-                newSessionTimes[timeId] = SESSION_DEFAULTS[timeId];
-            }
-        }
-
-        // Auto-sort frequency whenever it changes (even on toggle)
-        newFreq = sortFrequency(newFreq, newSessionTimes);
-        onUpdate(newFreq, newSessionTimes);
-    };
-
-    const updateSessionTime = (timeId: string, timeValue: string) => {
-        const newSessionTimes = { ...sessionTimes, [timeId]: timeValue };
-        const newFreq = sortFrequency(frequency, newSessionTimes);
-        onUpdate(newFreq, newSessionTimes);
-    };
-
+    // ─── Sort by time value ──────────────────────────────────
     const sortFrequency = (freq: string[], times: Record<string, string>) => {
         return [...freq].sort((a, b) => {
             const timeA = times[a] || '00:00';
@@ -58,36 +54,88 @@ export default function SessionTimeSelector({
         });
     };
 
-    const addCustomTime = () => {
-        const id = `custom_${Date.now()}`;
-        const newFreq = [...frequency, id];
-        const newSessionTimes = { ...sessionTimes, [id]: '22:00' };
-        onUpdate(sortFrequency(newFreq, newSessionTimes), newSessionTimes);
-    };
+    // ─── Toggle session on/off ───────────────────────────────
+    const toggleFrequency = (timeId: string) => {
+        const alreadySelected = frequency.includes(timeId);
+        let newFreq: string[];
+        let newSessionTimes = { ...sessionTimes };
 
-    const removeCustomTime = (id: string) => {
-        const newFreq = frequency.filter(t => t !== id);
-        const newSessionTimes = { ...sessionTimes };
-        delete newSessionTimes[id];
+        if (alreadySelected) {
+            newFreq = frequency.filter(t => t !== timeId);
+            delete newSessionTimes[timeId];
+            // Also remove all sub-times for this session
+            const normalizedId = SESSIONS.find(s => s.id === timeId)?.label || timeId;
+            const subKeys = getSubTimesForSession(normalizedId, newSessionTimes);
+            subKeys.forEach(k => {
+                delete newSessionTimes[k];
+                newFreq = newFreq.filter(f => f !== k);
+            });
+            // Also try lowercase version
+            const subKeys2 = getSubTimesForSession(timeId, newSessionTimes);
+            subKeys2.forEach(k => {
+                delete newSessionTimes[k];
+                newFreq = newFreq.filter(f => f !== k);
+            });
+        } else {
+            newFreq = [...frequency, timeId];
+            if (!newSessionTimes[timeId] && SESSION_DEFAULTS[timeId]) {
+                newSessionTimes[timeId] = SESSION_DEFAULTS[timeId];
+            }
+        }
+
+        newFreq = sortFrequency(newFreq, newSessionTimes);
         onUpdate(newFreq, newSessionTimes);
     };
 
+    // ─── Update time value ───────────────────────────────────
+    const updateSessionTime = (timeId: string, timeValue: string) => {
+        const newSessionTimes = { ...sessionTimes, [timeId]: timeValue };
+        const newFreq = sortFrequency(frequency, newSessionTimes);
+        onUpdate(newFreq, newSessionTimes);
+    };
+
+    // ─── Add sub-time to a session ───────────────────────────
+    const addSubTime = (sessionId: string) => {
+        // Normalize session ID (capitalize first letter to match slot_key)
+        const sessionConfig = SESSIONS.find(s => s.id === sessionId);
+        const normalizedId = sessionConfig?.label || sessionId;
+
+        const subId = `${normalizedId}_sub_${Date.now()}`;
+        // Default sub-time: primary time + 2 hours
+        const primaryTime = sessionTimes[sessionId] || SESSION_DEFAULTS[sessionId] || '08:00';
+        const [h, m] = primaryTime.split(':').map(Number);
+        const newH = Math.min(h + 2, 23);
+        const subTime = `${String(newH).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+
+        const newFreq = [...frequency, subId];
+        const newSessionTimes = { ...sessionTimes, [subId]: subTime };
+        onUpdate(sortFrequency(newFreq, newSessionTimes), newSessionTimes);
+    };
+
+    // ─── Remove sub-time ─────────────────────────────────────
+    const removeSubTime = (subId: string) => {
+        const newFreq = frequency.filter(t => t !== subId);
+        const newSessionTimes = { ...sessionTimes };
+        delete newSessionTimes[subId];
+        onUpdate(newFreq, newSessionTimes);
+    };
+
+    // ─── TimePicker confirm ──────────────────────────────────
     const handleConfirm = (date: Date) => {
         if (pickerConfig) {
             const hours = date.getHours().toString().padStart(2, '0');
             const minutes = date.getMinutes().toString().padStart(2, '0');
             const newTime = `${hours}:${minutes}`;
 
-            // Duplicate Time Check
-            const duplicateSessionId = Object.keys(sessionTimes).find(id =>
+            // Duplicate check
+            const duplicateId = Object.keys(sessionTimes).find(id =>
                 id !== pickerConfig.timeId && sessionTimes[id] === newTime && frequency.includes(id)
             );
 
-            if (duplicateSessionId) {
-                const sessionLabel = SESSIONS.find(t => t.id === duplicateSessionId)?.label || 'khác';
+            if (duplicateId) {
                 Alert.alert(
                     'Trùng mốc giờ',
-                    `Giờ này trùng với buổi ${sessionLabel}. Vui lòng chọn mốc thời gian khác!`
+                    `Giờ ${newTime} đã tồn tại. Vui lòng chọn mốc thời gian khác!`
                 );
                 return;
             }
@@ -97,12 +145,20 @@ export default function SessionTimeSelector({
         setShowTimePicker(false);
     };
 
-    const handleCancel = () => {
-        setShowTimePicker(false);
+    // ─── Open time picker for a given key ────────────────────
+    const openPicker = (timeId: string, label: string) => {
+        const timeValue = sessionTimes[timeId] || SESSION_DEFAULTS[timeId] || '08:00';
+        setPickerConfig({
+            timeId,
+            initialTime: timeValue,
+            title: `Chọn giờ uống ${label}`
+        });
+        setShowTimePicker(true);
     };
 
     return (
         <View>
+            {/* ── Session Grid (Sáng/Trưa/Chiều/Tối) ── */}
             <View style={[s.timeGrid, showError && frequency.length === 0 && s.gridError]}>
                 {SESSIONS.map(t => {
                     const active = frequency.includes(t.id);
@@ -125,58 +181,74 @@ export default function SessionTimeSelector({
                 })}
             </View>
 
-            {/* Dynamic Time Rows List */}
+            {/* ── Time Rows (primary + sub-times per session) ── */}
             <View style={s.timeRowsList}>
-                {frequency.map(id => {
-                    const isCustom = id.startsWith('custom_');
-                    const timeValue = sessionTimes[id] || SESSION_DEFAULTS[id] || '08:00';
+                {frequency.filter(id => !isSubTime(id)).map(id => {
                     const sessionConfig = SESSIONS.find(t => t.id === id);
+                    if (!sessionConfig) return null;
 
-                    const label = isCustom ? 'Tùy chỉnh' : (sessionConfig?.label || id);
-                    const icon = isCustom ? 'clock-outline' : sessionConfig?.icon;
-                    const iconColor = isCustom ? '#2563eb' : sessionConfig?.iconColor;
+                    const timeValue = sessionTimes[id] || SESSION_DEFAULTS[id] || '08:00';
+                    const normalizedLabel = sessionConfig.label;
+                    const subTimes = getSubTimesForSession(normalizedLabel, sessionTimes);
 
                     return (
-                        <View key={id} style={s.timeRowItem}>
-                            <View style={s.timeRowLeft}>
-                                <MaterialCommunityIcons name={icon as any} size={20} color={iconColor} />
-                                <Text style={s.timeRowLabel}>{isCustom ? label : `Buổi ${label}`}</Text>
-                            </View>
+                        <View key={id} style={s.sessionCard}>
+                            {/* Primary Time Row */}
+                            <View style={s.mainRow}>
+                                <View style={s.timeRowLeft}>
+                                    <MaterialCommunityIcons name={sessionConfig.icon as any} size={20} color={sessionConfig.iconColor} />
+                                    <Text style={s.timeRowLabel}>Buổi {normalizedLabel}</Text>
+                                </View>
 
-                            <View style={s.timeRowRight}>
                                 <TouchableOpacity
                                     style={s.timeInputBtn}
-                                    onPress={() => {
-                                        setPickerConfig({
-                                            timeId: id,
-                                            initialTime: timeValue,
-                                            title: `Chọn giờ uống ${isCustom ? label : `Buổi ${label}`}`
-                                        });
-                                        setShowTimePicker(true);
-                                    }}
+                                    onPress={() => openPicker(id, `Buổi ${normalizedLabel}`)}
                                 >
                                     <Text style={s.timeInputValue}>{timeValue}</Text>
                                     <Ionicons name="chevron-down" size={14} color="#9ca3af" />
                                 </TouchableOpacity>
-
-                                {isCustom && (
-                                    <TouchableOpacity
-                                        onPress={() => removeCustomTime(id)}
-                                        style={s.removeTimeRowBtn}
-                                    >
-                                        <Ionicons name="close-circle" size={20} color="#ef4444" />
-                                    </TouchableOpacity>
-                                )}
                             </View>
+
+                            {/* Sub-Time Rows (only TimePicker + Delete) */}
+                            {subTimes.map(subId => {
+                                const subTime = sessionTimes[subId] || '08:00';
+                                return (
+                                    <View key={subId} style={s.subTimeRow}>
+                                        <View style={s.subTimeIndent}>
+                                            <View style={s.subTimeLine} />
+                                            <View style={s.subTimeDot} />
+                                        </View>
+                                        <TouchableOpacity
+                                            style={s.timeInputBtn}
+                                            onPress={() => openPicker(subId, `Buổi ${normalizedLabel}`)}
+                                        >
+                                            <Text style={s.timeInputValue}>{subTime}</Text>
+                                            <Ionicons name="chevron-down" size={14} color="#9ca3af" />
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            onPress={() => removeSubTime(subId)}
+                                            style={s.removeSubBtn}
+                                        >
+                                            <Ionicons name="close-circle" size={20} color="#ef4444" />
+                                        </TouchableOpacity>
+                                    </View>
+                                );
+                            })}
+
+                            {/* + Thêm giờ uống buổi X */}
+                            <TouchableOpacity
+                                style={s.addSubBtn}
+                                onPress={() => addSubTime(id)}
+                                activeOpacity={0.7}
+                            >
+                                <Ionicons name="add" size={16} color={sessionConfig.activeColor} />
+                                <Text style={[s.addSubText, { color: sessionConfig.activeColor }]}>
+                                    Thêm giờ uống buổi {normalizedLabel.toLowerCase()}
+                                </Text>
+                            </TouchableOpacity>
                         </View>
                     );
                 })}
-
-                {/* Add Custom Time Button */}
-                <TouchableOpacity style={s.addCustomBtn} onPress={addCustomTime}>
-                    <Ionicons name="add-circle-outline" size={18} color="#6366f1" />
-                    <Text style={s.addCustomText}>Thêm mốc giờ tùy chỉnh</Text>
-                </TouchableOpacity>
             </View>
 
             <DateTimePickerModal
@@ -190,7 +262,7 @@ export default function SessionTimeSelector({
                     return d;
                 })()}
                 onConfirm={handleConfirm}
-                onCancel={handleCancel}
+                onCancel={() => setShowTimePicker(false)}
                 confirmTextIOS="Xong"
                 cancelTextIOS="Hủy"
                 is24Hour={true}
@@ -223,27 +295,54 @@ const s = StyleSheet.create({
     gridError: { borderWidth: 1.5, borderColor: '#ef4444', borderRadius: 14, padding: SP.xs, backgroundColor: '#fff5f5' },
 
     timeRowsList: { marginTop: SP.md, gap: SP.sm },
-    timeRowItem: {
+
+    // Session card — wraps primary + sub-times + add button
+    sessionCard: {
+        backgroundColor: '#fff', borderRadius: 12,
+        borderWidth: 1, borderColor: '#f1f5f9',
+        paddingHorizontal: 12, paddingTop: 10, paddingBottom: 6,
+        shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05, shadowRadius: 2, elevation: 2,
+    },
+    mainRow: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-        backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 10,
-        borderRadius: 12, borderWidth: 1, borderColor: '#f1f5f9',
-        shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2, elevation: 2,
     },
     timeRowLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     timeRowLabel: { fontSize: 14, fontWeight: '600', color: '#374151' },
-    timeRowRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     timeInputBtn: {
         flexDirection: 'row', alignItems: 'center', gap: 6,
         backgroundColor: '#f8fafc', paddingHorizontal: 10, paddingVertical: 6,
         borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0',
     },
     timeInputValue: { fontSize: 15, fontWeight: '700', color: '#2563eb' },
-    removeTimeRowBtn: { padding: 2 },
-    addCustomBtn: {
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-        paddingVertical: 10, marginTop: 4,
-        borderWidth: 1, borderStyle: 'dashed', borderColor: '#c7d2fe', borderRadius: 12,
-        backgroundColor: '#f5f7ff',
+
+    // Sub-time rows (inside card)
+    subTimeRow: {
+        flexDirection: 'row', alignItems: 'center',
+        marginTop: 8, paddingLeft: 8,
+        gap: 10,
     },
-    addCustomText: { fontSize: 13, fontWeight: '600', color: '#6366f1' },
+    subTimeIndent: {
+        flexDirection: 'column', alignItems: 'center',
+        width: 20, marginRight: 0,
+    },
+    subTimeLine: {
+        width: 1.5, height: 10,
+        backgroundColor: '#e5e7eb',
+    },
+    subTimeDot: {
+        width: 6, height: 6, borderRadius: 3,
+        backgroundColor: '#d1d5db',
+    },
+    removeSubBtn: { padding: 2 },
+
+    // Add sub-time button (inside card)
+    addSubBtn: {
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+        gap: 4, marginTop: 8, paddingTop: 8, paddingBottom: 4,
+        borderTopWidth: 1, borderTopColor: '#f3f4f6',
+    },
+    addSubText: {
+        fontSize: 12, fontWeight: '600',
+    },
 });

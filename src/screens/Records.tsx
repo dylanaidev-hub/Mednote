@@ -25,9 +25,10 @@ export default function Records() {
         const matchesSearch = hospitalMatch || medMatch;
 
         // Filter Match
-        const startDate = new Date(record.date);
+        const startDate = new Date(record.date + 'T00:00:00'); // local midnight
         const endDate = new Date(startDate);
         endDate.setDate(endDate.getDate() + record.duration);
+        endDate.setHours(23, 59, 59, 999);
         const now = new Date();
         const isActive = now >= startDate && now <= endDate;
 

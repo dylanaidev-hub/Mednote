@@ -6,11 +6,13 @@ import {
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, CommonActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMedContext, Prescription } from '../context/MedContext';
 import { MedicineEntry } from '../types/medicine';
+import PrimaryButton from '../components/PrimaryButton';
 import SessionTimeSelector from '../components/SessionTimeSelector';
+import { formatLocalDate } from '../utils/dateUtils';
 
 // ─── Default blank form state ────────────────────────────────────
 const blankForm = (): MedicineEntry => ({
@@ -28,15 +30,33 @@ const blankForm = (): MedicineEntry => ({
 // ─── Routine Add Screen ──────────────────────────────────────────
 export default function RoutineAddScreen() {
     const navigation = useNavigation<any>();
+    const route = useRoute<any>();
     const insets = useSafeAreaInsets();
-    const { addPrescription } = useMedContext();
+    const { addPrescription, updatePrescription } = useMedContext();
 
-    const [form, setForm] = useState<MedicineEntry>(blankForm());
+    // Edit mode detection
+    const editMode = route.params?.mode === 'edit';
+    const editPrescription: Prescription | undefined = route.params?.prescription;
+    const editMed = editPrescription?.medicines?.[0];
+
+    const [form, setForm] = useState<MedicineEntry>(editMed || blankForm());
     const [hasError, setHasError] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [selectedWeekdays, setSelectedWeekdays] = useState<number[]>(
+        editMed?.weekdays || []
+    );
 
     const units = ['Viên', 'Gói', 'Lọ', 'ml', 'ống'];
     const mealTimings = ['Trước ăn', 'Sau ăn', 'Khi đói', 'Tùy ý'];
+    const weekdayLabels = [
+        { day: 1, label: 'T2' },
+        { day: 2, label: 'T3' },
+        { day: 3, label: 'T4' },
+        { day: 4, label: 'T5' },
+        { day: 5, label: 'T6' },
+        { day: 6, label: 'T7' },
+        { day: 0, label: 'CN' },
+    ];
     const times = []; // Sessions now managed by SessionTimeSelector
 
     // ─── Form Helpers ──────────────────────────────────────────
@@ -47,6 +67,15 @@ export default function RoutineAddScreen() {
 
     const updateSessions = (frequency: string[], sessionTimes: Record<string, string>) => {
         setForm(prev => ({ ...prev, frequency, sessionTimes }));
+        if (hasError) setHasError(false);
+    };
+
+    // ─── Weekday toggle ─────────────────────────────────────────
+    const toggleWeekday = (day: number) => {
+        setSelectedWeekdays(prev => {
+            if (prev.includes(day)) return prev.filter(d => d !== day);
+            return [...prev, day];
+        });
         if (hasError) setHasError(false);
     };
 
@@ -64,9 +93,9 @@ export default function RoutineAddScreen() {
     const buildRecord = (): Prescription => ({
         id: `routine_${Date.now()}`,
         hospital: 'Thuốc định kỳ',
-        date: new Date().toISOString(),
+        date: formatLocalDate(new Date()),
         duration: 999,
-        medicines: [{ ...form, id: Date.now().toString() }],
+        medicines: [{ ...form, id: Date.now().toString(), weekdays: selectedWeekdays.length > 0 ? selectedWeekdays : undefined }],
         createdAt: new Date().toISOString(),
     });
 
@@ -76,9 +105,25 @@ export default function RoutineAddScreen() {
         if (!validate()) return;
         setIsSaving(true);
         try {
-            await addPrescription(buildRecord());
+            if (editMode && editPrescription) {
+                const updated: Prescription = {
+                    ...editPrescription,
+                    medicines: [{ ...form, weekdays: selectedWeekdays.length > 0 ? selectedWeekdays : undefined }],
+                };
+                await updatePrescription(updated);
+            } else {
+                await addPrescription(buildRecord());
+            }
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            navigation.goBack();
+            navigation.dispatch(
+                CommonActions.reset({
+                    index: 0,
+                    routes: [{
+                        name: 'MainTabs',
+                        state: { routes: [{ name: 'Records' }] },
+                    }],
+                })
+            );
         } catch {
             Alert.alert('Lỗi', 'Không thể lưu thuốc. Vui lòng thử lại.');
         } finally {
@@ -95,6 +140,7 @@ export default function RoutineAddScreen() {
             await addPrescription(buildRecord());
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             setForm({ ...blankForm(), id: Date.now().toString() });
+            setSelectedWeekdays([]);
             setHasError(false);
         } catch {
             Alert.alert('Lỗi', 'Không thể lưu thuốc. Vui lòng thử lại.');
@@ -114,7 +160,7 @@ export default function RoutineAddScreen() {
                 <TouchableOpacity onPress={() => navigation.goBack()} style={s.closeBtn}>
                     <Ionicons name="close" size={22} color="#374151" />
                 </TouchableOpacity>
-                <Text style={s.headerTitle}>Thuốc định kỳ</Text>
+                <Text style={s.headerTitle}>{editMode ? 'Cập nhật thuốc định kỳ' : 'Thuốc định kỳ'}</Text>
             </View>
 
             {/* ── Scrollable Form ─────────────────────────── */}
@@ -188,6 +234,32 @@ export default function RoutineAddScreen() {
                     showError={showError}
                 />
 
+                {/* ═══ SECTION 2.5: Tần suất uống (Weekdays) ═════ */}
+                <Text style={[s.sectionLabel, s.sectionGap]}>Tần suất uống</Text>
+                <View style={[s.weekdayRow, showError && selectedWeekdays.length === 0 && s.gridError]}>
+                    {weekdayLabels.map(({ day, label }) => {
+                        const isActive = selectedWeekdays.includes(day);
+                        return (
+                            <TouchableOpacity
+                                key={day}
+                                style={[s.weekdayChip, isActive && s.weekdayChipActive]}
+                                onPress={() => toggleWeekday(day)}
+                                activeOpacity={0.75}
+                            >
+                                <Text style={[s.weekdayText, isActive && s.weekdayTextActive]}>{label}</Text>
+                            </TouchableOpacity>
+                        );
+                    })}
+                </View>
+                {selectedWeekdays.length === 0 && (
+                    <Text style={s.weekdayHint}>Mỗi ngày (mặc định)</Text>
+                )}
+                {selectedWeekdays.length > 0 && (
+                    <Text style={s.weekdayHint}>
+                        {weekdayLabels.filter(w => selectedWeekdays.includes(w.day)).map(w => w.label).join(', ')}
+                    </Text>
+                )}
+
                 {/* ═══ SECTION 3: Cách uống ════════════════ */}
                 <Text style={[s.sectionLabel, s.sectionGap]}>Cách uống so với bữa ăn</Text>
                 <View style={[s.mealGrid, showError && !form.mealTiming && s.gridError]}>
@@ -232,25 +304,24 @@ export default function RoutineAddScreen() {
 
             {/* ── Sticky Bottom CTAs ──────────────────────── */}
             <View style={[s.footer, { paddingBottom: Math.max(insets.bottom, 20) }]}>
-                <TouchableOpacity
-                    style={s.secondaryBtn}
-                    onPress={handleSaveAndAddMore}
-                    disabled={isSaving}
-                    activeOpacity={0.75}
-                >
-                    <Ionicons name="add-circle-outline" size={18} color="#2563eb" />
-                    <Text style={s.secondaryBtnText}>Lưu & Thêm loại khác</Text>
-                </TouchableOpacity>
+                {!editMode && (
+                    <PrimaryButton
+                        variant="outline"
+                        title="Lưu & Thêm loại khác"
+                        icon="add-circle-outline"
+                        onPress={handleSaveAndAddMore}
+                        disabled={isSaving}
+                    />
+                )}
 
-                <TouchableOpacity
-                    style={[s.primaryBtn, isSaving && s.btnDisabled]}
+                <PrimaryButton
+                    title={isSaving ? 'Đang lưu...' : editMode ? 'Lưu thay đổi' : 'Lưu thuốc này'}
+                    icon="leaf"
+                    iconFamily="MaterialCommunityIcons"
                     onPress={handleSave}
+                    loading={isSaving}
                     disabled={isSaving}
-                    activeOpacity={0.85}
-                >
-                    <MaterialCommunityIcons name="leaf" size={20} color="#fff" />
-                    <Text style={s.primaryBtnText}>Lưu thuốc này</Text>
-                </TouchableOpacity>
+                />
             </View>
         </View>
     );
@@ -346,6 +417,24 @@ const s = StyleSheet.create({
     // Grid error highlight
     gridError: { borderWidth: 1.5, borderColor: '#ef4444', borderRadius: 14, padding: SPACING.xs, backgroundColor: '#fff5f5' },
 
+    // Weekday chips
+    weekdayRow: {
+        flexDirection: 'row', justifyContent: 'space-between',
+        gap: 6, paddingHorizontal: 2,
+    },
+    weekdayChip: {
+        width: 42, height: 42, borderRadius: 21,
+        backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center',
+        borderWidth: 1.5, borderColor: '#e5e7eb',
+    },
+    weekdayChipActive: { backgroundColor: '#2563eb', borderColor: '#2563eb' },
+    weekdayText: { fontSize: 13, fontWeight: '700', color: '#6b7280' },
+    weekdayTextActive: { color: '#ffffff' },
+    weekdayHint: {
+        fontSize: 12, color: '#9ca3af', marginTop: 6,
+        textAlign: 'center', fontStyle: 'italic',
+    },
+
     // Error banner
     errorBanner: {
         flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.sm,
@@ -357,10 +446,9 @@ const s = StyleSheet.create({
     // Sticky bottom CTAs
     footer: {
         paddingHorizontal: SPACING.md, paddingTop: 14,
-        gap: 12, // 12px between the two buttons
+        gap: 12,
         backgroundColor: '#ffffff',
         borderTopWidth: 1, borderTopColor: '#f1f5f9',
-        // Subtle upward shadow to lift bar from content
         shadowColor: '#000',
         shadowOffset: { width: 0, height: -3 },
         shadowOpacity: 0.06,

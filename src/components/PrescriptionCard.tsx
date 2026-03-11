@@ -27,20 +27,15 @@ export const PrescriptionCard = ({ prescription, onDelete, onPress }: Prescripti
         );
     };
 
-    const startDate = new Date(prescription.date);
+    const startDate = new Date(prescription.date + 'T00:00:00'); // local midnight
     const endDate = new Date(startDate);
     endDate.setDate(endDate.getDate() + prescription.duration);
+    endDate.setHours(23, 59, 59, 999);
 
     const now = new Date();
     const isActive = now >= startDate && now <= endDate;
 
-    // Determine the icon and background color based on prescription type or active status
     const isRoutine = prescription.hospital?.toLowerCase().includes('định kỳ') || false;
-    const TagIcon = isRoutine ? "leaf" : "clipboard-plus";
-
-    // --- Dynamic Title & Subtitle ---
-    // For routine meds: title = joined medicine names; subtitle = date • Uống mỗi ngày
-    // For prescriptions: title = hospital/doctor name; subtitle = date • X ngày
     const medicineNames = prescription.medicines.map(m => m.name).filter(Boolean);
     const title = isRoutine
         ? (medicineNames.join(', ') || 'Thuốc định kỳ')
@@ -50,11 +45,13 @@ export const PrescriptionCard = ({ prescription, onDelete, onPress }: Prescripti
         : `${startDate.toLocaleDateString('vi-VN')}${prescription.duration > 0 ? ` • ${prescription.duration} ngày` : ''}`;
     const statusLabel = isRoutine ? 'Thuốc bổ' : (isActive ? 'Đang uống' : 'Hết hạn');
 
-    // Active = Primary Blue (#2563eb), Completed = Grayscale muted
-    const iconBg = isActive ? 'bg-blue-50' : 'bg-gray-100';
-    const iconColor = isActive ? '#2563eb' : '#9ca3af';
-    const tagBg = isActive ? 'bg-blue-50' : 'bg-gray-100';
-    const tagText = isActive ? 'text-blue-600' : 'text-gray-500';
+    // --- Unified Primary Blue for all card icons (synced with Action Sheet) ---
+    const TagIcon = isRoutine ? 'leaf' : 'clipboard-plus';
+    const iconColor = isActive || isRoutine ? '#1D4ED8' : '#9ca3af';
+    const iconBg = isActive || isRoutine ? '#DBEAFE' : '#f3f4f6';
+
+    const tagBg = isActive || isRoutine ? 'bg-blue-50' : 'bg-gray-100';
+    const tagText = isActive || isRoutine ? 'text-blue-600' : 'text-gray-500';
 
     return (
         <Swipeable renderRightActions={renderRightActions} friction={2}>
@@ -62,9 +59,11 @@ export const PrescriptionCard = ({ prescription, onDelete, onPress }: Prescripti
                 onPress={() => onPress(prescription.id)}
                 className="bg-white flex-row items-center p-4 border-b border-gray-100"
             >
-                {/* Left: Semantic Square Box */}
-                <View className={`w-[56px] h-[56px] rounded-[16px] items-center justify-center mr-3 ${iconBg}`}>
-                    <MaterialCommunityIcons name={TagIcon as any} size={28} color={iconColor} />
+                {/* Left: 3-Layer Icon (matches Action Sheet) */}
+                <View className="w-[56px] h-[56px] rounded-[16px] items-center justify-center mr-3" style={{ backgroundColor: iconBg }}>
+                    <View style={{ width: 36, height: 36, borderRadius: 999, backgroundColor: iconColor, alignItems: 'center', justifyContent: 'center' }}>
+                        <MaterialCommunityIcons name={TagIcon as any} size={20} color="#FFFFFF" />
+                    </View>
                 </View>
 
                 {/* Middle: Text Information */}

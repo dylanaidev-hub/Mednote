@@ -37,17 +37,30 @@ const SLOT_CONFIG: Record<string, { label: string; icon: string; iconColor: stri
 
 // Normalize slot key to capitalized form
 function normalizeSlotKey(key: string): string {
+    // Handle sub-time keys: "Sáng_sub_123" → "Sáng"
+    const baseKey = key.includes('_sub_') ? key.split('_sub_')[0] : key;
     const map: Record<string, string> = {
         'sáng': 'Sáng', 'Sáng': 'Sáng',
         'trưa': 'Trưa', 'Trưa': 'Trưa',
         'chiều': 'Chiều', 'Chiều': 'Chiều',
         'tối': 'Tối', 'Tối': 'Tối',
     };
-    return map[key] || key;
+    return map[baseKey] || baseKey;
 }
 
-// Get exact time for a medicine in a specific session (handles casing)
+// Extract schedule_id from a sessionTimes key + medication id
+function getScheduleId(medId: string, sessionTimesKey: string): string {
+    if (sessionTimesKey.includes('_sub_')) {
+        // Sub-key format: "${slotKey}_sub_${schedule.id}" → schedule_id is after first _sub_
+        return sessionTimesKey.substring(sessionTimesKey.indexOf('_sub_') + 5);
+    }
+    // Primary key: schedule_id = "${medId}_${NormalizedSlotKey}"
+    return `${medId}_${normalizeSlotKey(sessionTimesKey)}`;
+}
+
+// Get exact time for a medicine entry (uses _virtualTime override if set)
 function getMedTime(med: MedicineEntry, slotKey: string): string {
+    if ((med as any)._virtualTime) return (med as any)._virtualTime;
     const normalizedTarget = normalizeSlotKey(slotKey);
     const entry = Object.entries(med.sessionTimes || {}).find(([k]) => normalizeSlotKey(k) === normalizedTarget);
     return entry ? entry[1] : (SLOT_CONFIG[normalizedTarget]?.time || '08:00');
@@ -56,7 +69,7 @@ function getMedTime(med: MedicineEntry, slotKey: string): string {
 // ─── Meal Timing ordering ────────────────────────────────────────
 const MEAL_ORDER = ['Trước ăn', 'Khi đói', 'Sau ăn', 'Tùy ý', 'Chưa định khung'];
 
-// ─── Group medicines into DoseSessions (Session-based) ───────────
+// ─── Group medicines into DoseSessions — 1 entry per time slot ───
 export function groupIntoDoseSessions(medicines: MedicineEntry[]): DoseSession[] {
     const sessionMap: Record<string, MedicineEntry[]> = {};
 
@@ -65,19 +78,31 @@ export function groupIntoDoseSessions(medicines: MedicineEntry[]): DoseSession[]
         const keys = Object.keys(sessionTimes);
 
         if (keys.length > 0) {
+            // Each sessionTimes key = one time slot → one card
             keys.forEach(key => {
                 const normalized = normalizeSlotKey(key);
                 if (!sessionMap[normalized]) sessionMap[normalized] = [];
-                if (!sessionMap[normalized].some(m => m.id === med.id)) {
-                    sessionMap[normalized].push(med);
+                const scheduleId = getScheduleId(med.id, key);
+
+                // Dedup by scheduleId
+                if (!sessionMap[normalized].some(m => m.id === scheduleId)) {
+                    sessionMap[normalized].push({
+                        ...med,
+                        id: scheduleId,       // schedule_id for confirm/undo
+                        _virtualTime: sessionTimes[key], // specific time for this slot
+                    } as any);
                 }
             });
         } else if (med.frequency && med.frequency.length > 0) {
             med.frequency.forEach(slot => {
                 const normalized = normalizeSlotKey(slot);
                 if (!sessionMap[normalized]) sessionMap[normalized] = [];
-                if (!sessionMap[normalized].some(m => m.id === med.id)) {
-                    sessionMap[normalized].push(med);
+                const scheduleId = `${med.id}_${normalized}`;
+                if (!sessionMap[normalized].some(m => m.id === scheduleId)) {
+                    sessionMap[normalized].push({
+                        ...med,
+                        id: scheduleId,
+                    } as any);
                 }
             });
         }
@@ -89,7 +114,6 @@ export function groupIntoDoseSessions(medicines: MedicineEntry[]): DoseSession[]
                 label: slotKey, icon: 'clock-outline', iconColor: '#6b7280', hour: 8, order: 99,
             };
 
-            // Sort medicines within session by their specific scheduled time
             const sortedMeds = [...meds].sort((a, b) => {
                 const timeA = getMedTime(a, slotKey);
                 const timeB = getMedTime(b, slotKey);
@@ -128,6 +152,9 @@ interface DoseSessionCardProps {
     onConfirmItems: (slotKey: string, ids: string[]) => void;
     onUndoItem: (slotKey: string, id?: string) => void;
     dateState?: 'past' | 'today' | 'future';
+    isReadOnly?: boolean;
+    completedAtMap?: Record<string, number>;
+    showCompletedTime?: boolean;
 }
 
 // ─── Dynamic Icon Mapping ────────────────────────────────────────
@@ -137,14 +164,8 @@ const getMedicineIconConfig = (med: MedicineEntry) => {
         return { family: 'MaterialCommunityIcons' as const, name: 'leaf', color: '#10b981', bgColor: '#ecfdf5' };
     }
 
-    // Priority 2: Custom types for prescriptions
+    // Priority 2: Unit-based icons for prescriptions
     const unit = (med.unit || '').toLowerCase();
-    const name = (med.name || '').toLowerCase();
-
-    // Supplements / Routine (legacy check)
-    if (name.includes('vitamin') || name.includes('omega') || name.includes('canxi') || name.includes('sắt')) {
-        return { family: 'MaterialCommunityIcons' as const, name: 'leaf', color: '#10b981', bgColor: '#ecfdf5' };
-    }
 
     // Packets / Powders
     if (unit.includes('gói')) {
@@ -160,22 +181,35 @@ const getMedicineIconConfig = (med: MedicineEntry) => {
     return { family: 'MaterialCommunityIcons' as const, name: 'pill', color: '#3b82f6', bgColor: '#eff6ff' };
 };
 
+// ─── Format completed_at timestamp ──────────────────────────────
+function formatCompletedAt(timestamp: number | undefined): string | null {
+    if (!timestamp) return null;
+    const d = new Date(timestamp);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `Đã uống lúc ${hh}:${mm}`;
+}
+
 // ─── Individual Medicine Item ────────────────────────────────────
 interface MedicineItemRowProps {
     med: MedicineEntry;
     sessionKey: string;
     isConfirmed: boolean;
     dateState?: 'past' | 'today' | 'future';
+    isReadOnly?: boolean;
+    completedAt?: number;
+    showCompletedTime?: boolean;
     onConfirm: () => void;
     onUndo?: () => void;
 }
 
-const MedicineItemRow: React.FC<MedicineItemRowProps> = ({ med, sessionKey, isConfirmed, dateState = 'today', onConfirm, onUndo }: MedicineItemRowProps) => {
+const MedicineItemRow: React.FC<MedicineItemRowProps> = ({ med, sessionKey, isConfirmed, dateState = 'today', isReadOnly = false, completedAt, showCompletedTime = false, onConfirm, onUndo }: MedicineItemRowProps) => {
     // Exact time for this item in this session
     const medTime = getMedTime(med, sessionKey);
     const scaleAnim = useRef(new Animated.Value(1)).current;
 
     const handleToggle = () => {
+        if (isReadOnly) return; // Read-only: no interactions
         if (!isConfirmed) {
             Animated.sequence([
                 Animated.timing(scaleAnim, { toValue: 1.2, duration: 100, useNativeDriver: true }),
@@ -186,6 +220,9 @@ const MedicineItemRow: React.FC<MedicineItemRowProps> = ({ med, sessionKey, isCo
             if (onUndo) onUndo();
         }
     };
+
+    // Format completed_at for display
+    const completedAtText = isConfirmed ? formatCompletedAt(completedAt) : null;
 
     // Dynamic CTA Text
     const ctaText = med.quantity && med.unit
@@ -220,13 +257,13 @@ const MedicineItemRow: React.FC<MedicineItemRowProps> = ({ med, sessionKey, isCo
                         {med.name}
                     </Text>
                     <View style={styles.medMetaRow}>
-                        <View style={styles.timeBadgeSmall}>
-                            <Text style={styles.timeBadgeTextSmall}>{medTime}</Text>
-                        </View>
                         <Text style={styles.medDose} numberOfLines={1}>
-                            • {med.dosage || `${med.quantity} ${med.unit}`}
+                            {med.dosage || `${med.quantity} ${med.unit}`}
                         </Text>
                     </View>
+                    {showCompletedTime && completedAtText && (
+                        <Text style={styles.completedAtText}>{completedAtText}</Text>
+                    )}
                 </View>
             </View>
 
@@ -237,8 +274,25 @@ const MedicineItemRow: React.FC<MedicineItemRowProps> = ({ med, sessionKey, isCo
                 </View>
             )}
 
-            {/* Checkbox Area for Today or any Confirmed state (e.g. Past) */}
-            {(dateState === 'today' || isConfirmed) && dateState !== 'future' ? (
+            {/* ── Read-Only Mode: Status Tags ── */}
+            {isReadOnly && dateState !== 'future' && (
+                isConfirmed ? (
+                    <View style={styles.statusTagDone}>
+                        <Text style={styles.statusTagDoneText}>Đã uống ✓</Text>
+                    </View>
+                ) : dateState === 'past' ? (
+                    <View style={styles.statusTagMissed}>
+                        <Text style={styles.statusTagMissedText}>Bỏ lỡ</Text>
+                    </View>
+                ) : (
+                    <View style={styles.statusTagPending}>
+                        <Text style={styles.statusTagPendingText}>Chưa uống</Text>
+                    </View>
+                )
+            )}
+
+            {/* ── Interactive Mode: Checkbox ── */}
+            {!isReadOnly && (dateState === 'today' || isConfirmed) && dateState !== 'future' ? (
                 <TouchableOpacity
                     onPress={handleToggle}
                     activeOpacity={0.7}
@@ -253,8 +307,8 @@ const MedicineItemRow: React.FC<MedicineItemRowProps> = ({ med, sessionKey, isCo
                 </TouchableOpacity>
             ) : null}
 
-            {/* Missed Warning for Past (not confirmed) */}
-            {dateState === 'past' && !isConfirmed && (
+            {/* Missed Warning for Past (not confirmed, not read-only) */}
+            {!isReadOnly && dateState === 'past' && !isConfirmed && (
                 <View style={styles.missedWarningWrap}>
                     <Ionicons name="close-circle" size={18} color="#ef4444" />
                 </View>
@@ -265,7 +319,7 @@ const MedicineItemRow: React.FC<MedicineItemRowProps> = ({ med, sessionKey, isCo
 
 export const DoseSessionCard = ({
     session, isActive, confirmedIds, onConfirmItems, onUndoItem,
-    dateState = 'today'
+    dateState = 'today', isReadOnly = false, completedAtMap = {}, showCompletedTime = false
 }: DoseSessionCardProps) => {
     const pulseAnim = useRef(new Animated.Value(1)).current;
 
@@ -375,16 +429,6 @@ export const DoseSessionCard = ({
             isActive && styles.cardActive,
             { transform: [{ scale: pulseAnim }] },
         ]}>
-            {/* Thin progress bar at top */}
-            {!isFullyDone && (
-                <View style={[
-                    styles.progressBarTop,
-                    {
-                        width: `${Math.round(progress * 100)}%`,
-                        backgroundColor: '#3b82f6',
-                    },
-                ]} />
-            )}
 
             {/* Header */}
             <View style={styles.headerRow}>
@@ -410,22 +454,45 @@ export const DoseSessionCard = ({
                 ) : null}
             </View>
 
-            {/* Medicine list directly (already sorted in groupIntoDoseSessions) */}
+            {/* Medicine list grouped by time */}
             <View style={styles.medList}>
-                {session.medicines.map(med => {
-                    const isConfirmed = confirmedIds.includes(med.id);
-                    return (
-                        <MedicineItemRow
-                            key={med.id}
-                            med={med}
-                            sessionKey={session.slotKey}
-                            isConfirmed={isConfirmed}
-                            dateState={dateState}
-                            onConfirm={() => handleConfirmOne(med.id)}
-                            onUndo={() => onUndoItem(session.slotKey, med.id)}
-                        />
-                    );
-                })}
+                {(() => {
+                    // Group medicines by time
+                    const timeGroups: Record<string, typeof session.medicines> = {};
+                    session.medicines.forEach(med => {
+                        const time = getMedTime(med, session.slotKey);
+                        if (!timeGroups[time]) timeGroups[time] = [];
+                        timeGroups[time].push(med);
+                    });
+                    const sortedTimes = Object.keys(timeGroups).sort();
+
+                    return sortedTimes.map(time => (
+                        <View key={time}>
+                            {/* Time sub-header */}
+                            <View style={styles.timeSubHeader}>
+                                <Ionicons name="time-outline" size={16} color="#6B7280" />
+                                <Text style={styles.timeSubHeaderText}>{time}</Text>
+                            </View>
+                            {timeGroups[time].map(med => {
+                                const isConfirmed = confirmedIds.includes(med.id);
+                                return (
+                                    <MedicineItemRow
+                                        key={med.id}
+                                        med={med}
+                                        sessionKey={session.slotKey}
+                                        isConfirmed={isConfirmed}
+                                        dateState={dateState}
+                                        isReadOnly={isReadOnly}
+                                        completedAt={completedAtMap[med.id]}
+                                        showCompletedTime={showCompletedTime}
+                                        onConfirm={() => handleConfirmOne(med.id)}
+                                        onUndo={() => onUndoItem(session.slotKey, med.id)}
+                                    />
+                                );
+                            })}
+                        </View>
+                    ));
+                })()}
             </View>
 
             {/* UX Feedback for Future State */}
@@ -437,8 +504,8 @@ export const DoseSessionCard = ({
                 </View>
             )}
 
-            {/* CTA Button — only if there are remaining meds AND today */}
-            {dateState === 'today' && remainingCount > 0 && !isFullyDone && (
+            {/* CTA Button — only if there are remaining meds AND today AND not read-only */}
+            {!isReadOnly && dateState === 'today' && remainingCount > 0 && !isFullyDone && (
                 <TouchableOpacity
                     style={[styles.ctaButton, ctaStyle]}
                     onPress={handleConfirmAll}
@@ -462,7 +529,7 @@ const styles = StyleSheet.create({
     card: {
         backgroundColor: '#ffffff',
         borderRadius: 18,
-        paddingTop: 3, // space for progress bar
+        paddingTop: 14,
         paddingHorizontal: 18,
         paddingBottom: 18,
         marginBottom: 12,
@@ -565,6 +632,19 @@ const styles = StyleSheet.create({
     medList: {
         marginTop: 14,
         marginBottom: 14,
+    },
+    timeSubHeader: {
+        flexDirection: 'row' as const,
+        alignItems: 'center' as const,
+        marginTop: 14,
+        marginBottom: 6,
+        paddingHorizontal: 14,
+    },
+    timeSubHeaderText: {
+        fontSize: 15,
+        fontWeight: '700' as const,
+        color: '#374151',
+        marginLeft: 6,
     },
     // Medicine item row
     medRow: {
@@ -752,5 +832,45 @@ const styles = StyleSheet.create({
         fontSize: 11,
         fontWeight: '700',
         color: '#4b5563',
+    },
+    completedAtText: {
+        fontSize: 12,
+        color: '#16a34a',
+        fontWeight: '500',
+        marginTop: 2,
+    },
+    // ── Status Tags (Read-only mode) ──
+    statusTagDone: {
+        backgroundColor: '#dcfce7',
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 8,
+    },
+    statusTagDoneText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#16a34a',
+    },
+    statusTagPending: {
+        backgroundColor: '#f3f4f6',
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 8,
+    },
+    statusTagPendingText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#9ca3af',
+    },
+    statusTagMissed: {
+        backgroundColor: '#fef2f2',
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 8,
+    },
+    statusTagMissedText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: '#ef4444',
     },
 });

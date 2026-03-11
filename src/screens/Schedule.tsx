@@ -91,9 +91,17 @@ function doseSessionRowsToMedicines(rows: DoseSessionRow[]): MedicineEntry[] {
 
         const med = medMap.get(row.medication_id)!;
         const slotKey = row.slot_key;
-        if (slotKey && !med.sessionTimes[slotKey]) {
-            med.sessionTimes[slotKey] = row.time;
-            med.frequency.push(slotKey.toLowerCase());
+        if (slotKey) {
+            if (!med.sessionTimes[slotKey]) {
+                // Primary time slot
+                med.sessionTimes[slotKey] = row.time;
+                med.frequency.push(slotKey.toLowerCase());
+            } else if (med.sessionTimes[slotKey] !== row.time) {
+                // Sub-time: same slot_key, different time
+                const subKey = `${slotKey}_sub_${row.schedule_id}`;
+                med.sessionTimes[subKey] = row.time;
+                med.frequency.push(subKey);
+            }
         }
     });
 
@@ -170,6 +178,9 @@ export default function Schedule() {
     const days = weekDays(weekBase);
 
     // ── SSoT: Load dose sessions from dose_logs table ──────────
+    // Re-fetch whenever selectedDate, records, or confirmedMedsToday changes.
+    // confirmedMedsToday triggers re-fetch so completed_at timestamps update
+    // after the user confirms meds on the Dashboard screen.
     useEffect(() => {
         const loadDoseSessions = async () => {
             const dateStr = formatLocalDate(selectedDate);
@@ -180,11 +191,22 @@ export default function Schedule() {
             setDoseSessions(rows);
         };
         loadDoseSessions();
-    }, [selectedDate, records]);
+    }, [selectedDate, records, confirmedSlots]);
 
     // ── Convert DB rows to MedicineEntry[] → DoseSession[] ────
     const meds = useMemo(() => doseSessionRowsToMedicines(doseSessions), [doseSessions]);
     const sessions: DoseSession[] = useMemo(() => groupIntoDoseSessions(meds), [meds]);
+
+    // ── Build completedAtMap: schedule_id → completed_at timestamp ────
+    const completedAtMap = useMemo(() => {
+        const map: Record<string, number> = {};
+        doseSessions.forEach(row => {
+            if (row.status === 'COMPLETED' && row.completed_at) {
+                map[row.schedule_id] = row.completed_at;
+            }
+        });
+        return map;
+    }, [doseSessions]);
 
     // ── hasMeds dot for calendar strip (also from dose_logs) ──
     const [dayDotsCache, setDayDotsCache] = useState<Record<string, boolean>>({});
@@ -272,7 +294,7 @@ export default function Schedule() {
 
     const adherenceLabel = () => {
         if (totalMeds === 0) return 'Không có lịch thuốc';
-        if (allDone) return 'Hoàn thành tốt! 🎉';
+        if (allDone) return 'Hoàn thành tốt!';
         if (isFuture(selectedDate)) return `${totalMeds} loại thuốc dự kiến`;
         if (isPast(selectedDate)) return `${totalMeds} loại thuốc`;
         return `Đã uống ${confirmedCount}/${totalMeds} liều`;
@@ -360,13 +382,18 @@ export default function Schedule() {
                         <Text style={styles.adherenceDate}>
                             {selectedDate.getDate()} {VI_MON[selectedDate.getMonth()]}, {selectedDate.getFullYear()}
                         </Text>
-                        <Text style={[
-                            styles.adherenceLabel,
-                            allDone && { color: '#10b981' },
-                            totalMeds === 0 && { color: '#9ca3af' },
-                        ]}>
-                            {adherenceLabel()}
-                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <Text style={[
+                                styles.adherenceLabel,
+                                allDone && { color: '#10b981' },
+                                totalMeds === 0 && { color: '#9ca3af' },
+                            ]}>
+                                {adherenceLabel()}
+                            </Text>
+                            {allDone && (
+                                <Ionicons name="checkmark-circle" size={16} color="#22C55E" style={{ marginLeft: 6 }} />
+                            )}
+                        </View>
                     </View>
                 </View>
 
@@ -412,24 +439,11 @@ export default function Schedule() {
                                     isActive={isActive}
                                     confirmedIds={confirmedInSession}
                                     dateState={dateState}
-                                    onConfirmItems={(slotKey, ids) => {
-                                        updateConfirmedMed(slotKey, ids);
-                                        if (isToday(selectedDate)) {
-                                            const dateStr = toISO(selectedDate);
-                                            NotificationService.cancelSpecificSlot(dateStr, slotKey);
-                                        }
-                                    }}
-                                    onUndoItem={(slotKey, medId) => {
-                                        if (isToday(selectedDate)) {
-                                            if (medId) {
-                                                updateConfirmedMed(slotKey, [medId], true);
-                                                const med = sess.medicines.find(m => m.id === medId);
-                                                if (med) showToast({ message: `Đã bỏ xác nhận uống thuốc ${med.name}` });
-                                            } else {
-                                                updateConfirmedMed(slotKey, [], true);
-                                            }
-                                        }
-                                    }}
+                                    isReadOnly={true}
+                                    completedAtMap={completedAtMap}
+                                    showCompletedTime={true}
+                                    onConfirmItems={() => {}}
+                                    onUndoItem={() => {}}
                                 />
                             );
                         })}

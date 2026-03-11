@@ -8,6 +8,7 @@ import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MedicineEntry } from '../types/medicine';
 import { useMedContext, Prescription } from '../context/MedContext';
+import PrimaryButton from '../components/PrimaryButton';
 
 // ─── Spacing tokens (mirrors ManualAddScreen / RoutineAddScreen) ──
 const SP = { xs: 4, sm: 8, md: 16, lg: 24, xl: 32 };
@@ -171,23 +172,37 @@ export default function ManualAddReviewScreen() {
                                 </View>
                             ) : null}
 
-                            {/* Frequency chips */}
-                            {med.frequency.length > 0 && (
-                                <View style={s.tagRow}>
-                                    {med.frequency.map(freq => {
-                                        const timeLabel = med.sessionTimes[freq] || freq;
-                                        const isCustom = freq.startsWith('custom_');
-                                        const displayLabel = isCustom ? timeLabel : `${freq.charAt(0).toUpperCase() + freq.slice(1)} (${timeLabel})`;
+                            {/* Frequency chips — grouped by session */}
+                            {med.frequency.length > 0 && (() => {
+                                // Group times by cleaned session name
+                                const grouped: Record<string, string[]> = {};
+                                med.frequency.forEach(freq => {
+                                    const baseSession = freq.includes('_sub_') ? freq.split('_sub_')[0] : freq;
+                                    const cleanLabel = baseSession.charAt(0).toUpperCase() + baseSession.slice(1);
+                                    const time = med.sessionTimes?.[freq];
+                                    if (!grouped[cleanLabel]) grouped[cleanLabel] = [];
+                                    if (time && !grouped[cleanLabel].includes(time)) {
+                                        grouped[cleanLabel].push(time);
+                                    }
+                                });
 
-                                        return (
-                                            <View key={freq} style={[s.tag, s.tagFreq]}>
-                                                <Ionicons name="time-outline" size={12} color="#2563eb" />
-                                                <Text style={[s.tagText, { color: '#2563eb' }]} >{displayLabel}</Text>
-                                            </View>
-                                        );
-                                    })}
-                                </View>
-                            )}
+                                return (
+                                    <View style={s.tagRow}>
+                                        {Object.entries(grouped).map(([session, times]) => {
+                                            const sortedTimes = times.sort();
+                                            const label = sortedTimes.length > 0
+                                                ? `${session} (${sortedTimes.join(', ')})`
+                                                : session;
+                                            return (
+                                                <View key={session} style={[s.tag, s.tagFreq]}>
+                                                    <Ionicons name="time-outline" size={12} color="#2563eb" />
+                                                    <Text style={[s.tagText, { color: '#2563eb' }]}>{label}</Text>
+                                                </View>
+                                            );
+                                        })}
+                                    </View>
+                                );
+                            })()}
 
                             {/* Optional note */}
                             {med.note ? (
@@ -203,21 +218,13 @@ export default function ManualAddReviewScreen() {
 
             {/* ══ Sticky Bottom CTA ═════════════════════════════════ */}
             <View style={[s.footer, { paddingBottom: Math.max(insets.bottom, 20) }]}>
-                <TouchableOpacity
-                    style={[s.ctaBtn, saving && s.ctaBtnDisabled]}
+                <PrimaryButton
+                    title={saving ? 'Đang thiết lập...' : 'Hoàn tất lưu thủ công'}
+                    icon="checkmark-circle"
                     onPress={handleFinalSave}
+                    loading={saving}
                     disabled={saving}
-                    activeOpacity={0.85}
-                >
-                    {saving ? (
-                        <Text style={s.ctaBtnText}>Đang thiết lập...</Text>
-                    ) : (
-                        <>
-                            <Text style={s.ctaBtnText}>Hoàn tất lưu thủ công</Text>
-                            <Ionicons name="checkmark-circle" size={22} color="white" />
-                        </>
-                    )}
-                </TouchableOpacity>
+                />
             </View>
         </View>
     );

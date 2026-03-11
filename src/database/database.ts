@@ -51,7 +51,8 @@ export async function initDB(): Promise<void> {
             duration INTEGER DEFAULT 0,
             start_date TEXT,
             images TEXT,
-            note TEXT
+            note TEXT,
+            weekdays TEXT
         )
     `);
 
@@ -80,6 +81,27 @@ export async function initDB(): Promise<void> {
     await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_dose_logs_date ON dose_logs(scheduled_date)`);
     await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_dose_logs_med_date ON dose_logs(medication_id, scheduled_date)`);
     await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_schedules_med ON schedules(medication_id)`);
+
+    // ── Safe migration: add weekdays column if missing ──
+    try {
+        await db.execAsync(`ALTER TABLE medications ADD COLUMN weekdays TEXT`);
+    } catch {
+        // Column already exists, ignore
+    }
+
+    // ── Data cleanup: fix any bad slot_key containing '_sub_' ──
+    // Sub-time schedules should have clean slot_key (e.g. 'Sáng', not 'Sáng_sub_xxx')
+    const badRows = await db.getAllAsync<{ id: string; slot_key: string }>(
+        `SELECT id, slot_key FROM schedules WHERE slot_key LIKE '%_sub_%'`
+    );
+    if (badRows.length > 0) {
+        const fixes = badRows.map(row => {
+            const cleanKey = row.slot_key.split('_sub_')[0];
+            return `UPDATE schedules SET slot_key = '${cleanKey}' WHERE id = '${row.id}'`;
+        });
+        await db.execAsync(fixes.join(';\n') + ';');
+        console.log(`MedNote: Cleaned ${badRows.length} bad slot_key records`);
+    }
 }
 
 /**

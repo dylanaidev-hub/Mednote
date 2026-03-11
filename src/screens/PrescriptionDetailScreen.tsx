@@ -5,6 +5,7 @@ import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/nativ
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ImageView from 'react-native-image-viewing';
 import { useMedContext } from '../context/MedContext';
+import PrimaryButton from '../components/PrimaryButton';
 import { formatLocalDate } from '../utils/dateUtils';
 import { getWeekDays, getMotivationalText } from '../services/doseLogService';
 import {
@@ -17,7 +18,7 @@ import { DayProgress } from '../types/schema';
 export default function PrescriptionDetailScreen() {
     const route = useRoute<any>();
     const navigation = useNavigation<any>();
-    const { records } = useMedContext();
+    const { records, archivePrescription } = useMedContext();
     const { prescriptionId } = route.params;
     const insets = useSafeAreaInsets();
 
@@ -43,10 +44,9 @@ export default function PrescriptionDetailScreen() {
 
     const images = prescription.images ? prescription.images.map(uri => ({ uri })) : [];
 
-    const startDate = new Date(prescription.date);
+    const startDate = new Date(prescription.date + 'T00:00:00'); // local midnight
     const endDate = new Date(startDate);
     endDate.setDate(endDate.getDate() + prescription.duration);
-
     endDate.setHours(23, 59, 59, 999);
     const isActive = now >= startDate && now <= endDate;
 
@@ -132,7 +132,11 @@ export default function PrescriptionDetailScreen() {
     const motivationalText = getMotivationalText(compliance);
 
     const handleEdit = () => {
-        Alert.alert('Chức năng Chỉnh sửa', 'Tính năng này đang được phát triển.');
+        const target = isRoutine ? 'RoutineAdd' : 'ManualAdd';
+        navigation.navigate(target, {
+            mode: 'edit',
+            prescription,
+        });
     };
 
     return (
@@ -358,6 +362,22 @@ export default function PrescriptionDetailScreen() {
                     const iconBg = isActive ? 'bg-blue-50' : 'bg-gray-100';
                     const iconColor = isActive ? PRIMARY_BLUE : '#9ca3af';
 
+                    // Dynamic icon based on med type (same logic as Dashboard)
+                    const getIconConfig = () => {
+                        if (isRoutine || med.source === 'routine') {
+                            return { family: 'MaterialCommunityIcons' as const, name: 'leaf', color: '#10b981', bgColor: '#ecfdf5' };
+                        }
+                        const unit = (med.unit || '').toLowerCase();
+                        if (unit.includes('gói')) {
+                            return { family: 'Ionicons' as const, name: 'cube-outline', color: '#f59e0b', bgColor: '#fef3c7' };
+                        }
+                        if (unit.includes('ml') || unit.includes('lọ') || unit.includes('ống') || unit.includes('chai')) {
+                            return { family: 'Ionicons' as const, name: 'water-outline', color: '#0ea5e9', bgColor: '#e0f2fe' };
+                        }
+                        return { family: 'MaterialCommunityIcons' as const, name: 'pill', color: isActive ? '#3b82f6' : '#9ca3af', bgColor: isActive ? '#eff6ff' : '#f3f4f6' };
+                    };
+                    const iconCfg = getIconConfig();
+
                     return (
                         <View
                             key={med.id}
@@ -365,8 +385,13 @@ export default function PrescriptionDetailScreen() {
                             style={[{ borderColor: GRAY_100, borderWidth: 1 }, LIGHT_SHADOW]}
                         >
                             <View className="flex-row items-center mb-6">
-                                <View className={`w-14 h-14 rounded-[18px] items-center justify-center mr-4 ${iconBg}`}>
-                                    <MaterialCommunityIcons name="pill" size={28} color={iconColor} />
+                                <View className="w-14 h-14 rounded-[18px] items-center justify-center mr-4"
+                                    style={{ backgroundColor: iconCfg.bgColor }}>
+                                    {iconCfg.family === 'Ionicons' ? (
+                                        <Ionicons name={iconCfg.name as any} size={28} color={iconCfg.color} />
+                                    ) : (
+                                        <MaterialCommunityIcons name={iconCfg.name as any} size={28} color={iconCfg.color} />
+                                    )}
                                 </View>
                                 <View className="flex-1">
                                     <Text className="text-[18px] font-black" style={{ color: NAVY_TEXT }}>{med.name}</Text>
@@ -375,17 +400,41 @@ export default function PrescriptionDetailScreen() {
                             </View>
 
                             <View className="border-t pt-5" style={{ borderColor: '#F3F4F6' }}>
-                                {Object.entries(med.sessionTimes || {}).map(([session, time]) => (
-                                    <View key={session} className="flex-row items-center justify-between mb-4 last:mb-0">
-                                        <View className="flex-row items-center">
-                                            <View className="w-2 h-2 rounded-full mr-3" style={{ backgroundColor: PRIMARY_BLUE }} />
-                                            <Text className="text-[15px] capitalize font-bold text-gray-700">{session}</Text>
-                                        </View>
-                                        <View className="bg-gray-50 px-4 py-2 rounded-xl">
-                                            <Text className="text-[17px] font-black" style={{ color: NAVY_TEXT }}>{time}</Text>
-                                        </View>
-                                    </View>
-                                ))}
+                                {(() => {
+                                    // Group times by session (merge sub-times with parent)
+                                    const grouped: Record<string, string[]> = {};
+                                    Object.entries(med.sessionTimes || {}).forEach(([key, time]) => {
+                                        const baseSession = key.includes('_sub_') ? key.split('_sub_')[0] : key;
+                                        const displayKey = baseSession.charAt(0).toUpperCase() + baseSession.slice(1);
+                                        if (!grouped[displayKey]) grouped[displayKey] = [];
+                                        grouped[displayKey].push(time);
+                                    });
+
+                                    // Session color/icon lookup
+                                    const SESSION_THEME: Record<string, { icon: string; color: string }> = {
+                                        'Sáng': { icon: 'weather-sunny', color: '#f59e0b' },
+                                        'Trưa': { icon: 'weather-partly-cloudy', color: '#f97316' },
+                                        'Chiều': { icon: 'weather-sunset', color: '#ef4444' },
+                                        'Tối': { icon: 'moon-waning-crescent', color: '#6366f1' },
+                                    };
+
+                                    return Object.entries(grouped).map(([session, times]) => {
+                                        const theme = SESSION_THEME[session] || { icon: 'clock-outline', color: GRAY_500 };
+                                        return (
+                                            <View key={session} className="flex-row items-center justify-between mb-4 last:mb-0">
+                                                <View className="flex-row items-center">
+                                                    <MaterialCommunityIcons name={theme.icon as any} size={18} color={theme.color} style={{ marginRight: 8 }} />
+                                                    <Text className="text-[15px] font-bold" style={{ color: theme.color }}>{session}</Text>
+                                                </View>
+                                                <View className="bg-gray-50 px-4 py-2 rounded-xl">
+                                                    <Text className="text-[17px] font-black" style={{ color: NAVY_TEXT }}>
+                                                        {times.sort().join(', ')}
+                                                    </Text>
+                                                </View>
+                                            </View>
+                                        );
+                                    });
+                                })()}
                             </View>
                         </View>
                     );
@@ -404,18 +453,30 @@ export default function PrescriptionDetailScreen() {
                     Đã lưu vào ngày {startDate.toLocaleDateString('vi-VN')}
                 </Text>
 
-                <TouchableOpacity
+                <PrimaryButton
+                    title="Cập nhật đơn thuốc"
+                    icon="create-outline"
                     onPress={handleEdit}
-                    className="w-full h-15 rounded-full items-center justify-center flex-row shadow-sm mb-3"
-                    style={{ backgroundColor: NAVY_TEXT, height: 56 }}
-                >
-                    <Ionicons name="create-outline" size={22} color="white" />
-                    <Text className="text-white font-bold ml-2 text-[17px]">Cập nhật đơn thuốc</Text>
-                </TouchableOpacity>
+                    style={{ marginBottom: 12 }}
+                />
 
                 {isActive && (
                     <TouchableOpacity
-                        onPress={() => Alert.alert('Xác nhận', isRoutine ? 'Bạn muốn ngừng uống loại thuốc này?' : 'Bạn có chắc chắn muốn kết thúc tiến trình này?')}
+                        onPress={() => {
+                            const title = isRoutine ? 'Dừng uống thuốc này?' : 'Kết thúc điều trị?';
+                            const message = 'Các lịch nhắc nhở trong tương lai sẽ bị hủy, nhưng lịch sử đã uống của bạn vẫn được lưu lại.';
+                            Alert.alert(title, message, [
+                                { text: 'Hủy bỏ', style: 'cancel' },
+                                {
+                                    text: 'Đồng ý',
+                                    style: 'destructive',
+                                    onPress: async () => {
+                                        await archivePrescription(prescriptionId);
+                                        navigation.goBack();
+                                    },
+                                },
+                            ]);
+                        }}
                         className="w-full h-12 items-center justify-center"
                         style={{ height: 48 }}
                     >

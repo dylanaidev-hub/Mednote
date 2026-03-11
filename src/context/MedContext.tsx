@@ -13,12 +13,15 @@ import { initDB } from '../database/database';
 import { migrateFromAsyncStorage } from '../database/migration';
 import {
     insertPrescription as sqlInsertPrescription,
+    updatePrescription as sqlUpdatePrescription,
+    archivePrescription as sqlArchivePrescription,
     deletePrescriptionById as sqlDeletePrescription,
     getAllPrescriptions as sqlGetAllPrescriptions,
     PrescriptionRecord,
 } from '../database/medicationDAO';
 import {
     getConfirmedMedsForDate as sqlGetConfirmedMedsForDate,
+    getCompletedAtMapForDate as sqlGetCompletedAtMapForDate,
     confirmMedicines as sqlConfirmMedicines,
     undoConfirmMedicines as sqlUndoConfirmMedicines,
     getMedicationLogsLegacy as sqlGetMedicationLogsLegacy,
@@ -54,6 +57,8 @@ interface MedContextType {
     records: Prescription[];
     medicationLogs: Record<string, Record<string, MedicationStatus>>;
     addPrescription: (prescription: Prescription) => Promise<void>;
+    updatePrescription: (prescription: Prescription) => Promise<void>;
+    archivePrescription: (id: string) => Promise<void>;
     deletePrescription: (id: string) => Promise<void>;
     updateMedicationLog: (prescriptionId: string, date: string, status: MedicationStatus | null) => Promise<void>;
     notificationsEnabled: boolean;
@@ -62,6 +67,7 @@ interface MedContextType {
     setNaggingMode: (enabled: boolean) => Promise<void>;
     isLoading: boolean;
     confirmedMedsToday: Record<string, string[]>;
+    completedAtMap: Record<string, number>;
     updateConfirmedMed: (slotKey: string, medIds: string[], isUndo?: boolean) => Promise<void>;
     clearConfirmedMeds: () => Promise<void>;
 }
@@ -76,19 +82,19 @@ const MedContext = createContext<MedContextType | undefined>(undefined);
 
 function extractActiveMedicines(
     prescriptions: Prescription[],
-    doseLogKeys: Set<string> | null,   // Set of "medId_SlotKey" from dose_logs
+    _doseLogKeys: Set<string> | null,   // Kept for API compat but no longer used for filtering
     usingSQLite: boolean
 ): MedicineEntry[] {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // ★ SQLite mode but keys not loaded yet → return empty (wait for loadFromSQLite to finish)
-    if (usingSQLite && doseLogKeys === null) {
+    // ★ SQLite mode but data not loaded yet → return empty
+    if (usingSQLite && _doseLogKeys === null) {
         return [];
     }
 
     return prescriptions.flatMap(rx => {
-        const start = new Date(rx.date);
+        const start = new Date(rx.date + 'T00:00:00');
         start.setHours(0, 0, 0, 0);
         const end = new Date(start);
         end.setDate(end.getDate() + rx.duration - 1);
@@ -97,33 +103,17 @@ function extractActiveMedicines(
 
         const result: MedicineEntry[] = [];
         for (const med of rx.medicines) {
-            let filteredSessionTimes: Record<string, string> = {};
-            let filteredFrequency: string[] = [];
+            const sessionTimes = med.sessionTimes || {};
+            const frequency = med.frequency || [];
 
-            if (usingSQLite && doseLogKeys) {
-                // ★ Data-Driven: ONLY include sessions with actual dose_log records
-                Object.entries(med.sessionTimes || {}).forEach(([slot, time]) => {
-                    const normalizedSlot = slot.charAt(0).toUpperCase() + slot.slice(1).toLowerCase();
-                    const key = `${med.id}_${normalizedSlot}`;
-                    if (doseLogKeys.has(key)) {
-                        filteredSessionTimes[slot] = time;
-                        filteredFrequency.push(slot);
-                    }
-                });
-            } else {
-                // Fallback (AsyncStorage mode): include all sessions
-                filteredSessionTimes = { ...med.sessionTimes };
-                filteredFrequency = [...med.frequency];
-            }
-
-            if (Object.keys(filteredSessionTimes).length === 0) {
+            if (Object.keys(sessionTimes).length === 0 && frequency.length === 0) {
                 continue;
             }
 
             result.push({
                 ...med,
-                sessionTimes: filteredSessionTimes,
-                frequency: filteredFrequency,
+                sessionTimes: { ...sessionTimes },
+                frequency: [...frequency],
                 prescriptionId: rx.id,
                 source: (rx.duration === 999 ? 'routine' : 'prescription') as 'routine' | 'prescription',
             });
@@ -138,6 +128,7 @@ export const MedProvider = ({ children }: { children: ReactNode }) => {
     const [records, setRecords] = useState<Prescription[]>([]);
     const [medicationLogs, setMedicationLogs] = useState<Record<string, Record<string, MedicationStatus>>>({});
     const [confirmedMedsToday, setConfirmedMedsToday] = useState<Record<string, string[]>>({});
+    const [completedAtMap, setCompletedAtMap] = useState<Record<string, number>>({});
     const [todayDoseLogKeys, setTodayDoseLogKeys] = useState<Set<string> | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
@@ -202,6 +193,8 @@ export const MedProvider = ({ children }: { children: ReactNode }) => {
             const todayStr = formatLocalDate(new Date());
             const confirmed = await sqlGetConfirmedMedsForDate(todayStr);
             setConfirmedMedsToday(confirmed);
+            const catMap = await sqlGetCompletedAtMapForDate(todayStr);
+            setCompletedAtMap(catMap);
 
             // ★ Step 1: Ensure dose_logs exist for ALL active meds today (Day-1 aware)
             await sqlEnsureAllTodayDoseLogs(todayStr);
@@ -311,12 +304,43 @@ export const MedProvider = ({ children }: { children: ReactNode }) => {
         } catch (e) {
             console.error('Failed to add prescription:', e);
         } finally {
-            // Re-enable scheduling after a delay
-            setTimeout(() => {
+            // Re-enable scheduling after a short delay, then EXPLICITLY reschedule
+            // This fixes the race condition where the useEffect debounce causes
+            // notifications for "near-future" times to be skipped (already past).
+            setTimeout(async () => {
                 suppressScheduleRef.current = false;
-            }, 3000);
+                // Explicitly reschedule with the LATEST records from state
+                // We read fresh from SQLite/state to avoid stale closures
+                try {
+                    if (useSQLite.current) {
+                        const freshRecords = await sqlGetAllPrescriptions();
+                        const freshLogs = await sqlGetMedicationLogsLegacy();
+                        const todayStr = formatLocalDate(new Date());
+                        const freshConfirmed = await sqlGetConfirmedMedsForDate(todayStr);
+                        console.log('MedNote: Post-creation explicit scheduling with', freshRecords.length, 'prescriptions');
+                        await NotificationService.scheduleAll(
+                            freshRecords,
+                            notificationsEnabled,
+                            naggingMode,
+                            freshLogs,
+                            freshConfirmed
+                        );
+                    } else {
+                        console.log('MedNote: Post-creation explicit scheduling (AsyncStorage mode)');
+                        await NotificationService.scheduleAll(
+                            records,
+                            notificationsEnabled,
+                            naggingMode,
+                            medicationLogs,
+                            confirmedMedsToday
+                        );
+                    }
+                } catch (err) {
+                    console.error('MedNote: Post-creation scheduling failed:', err);
+                }
+            }, 2000);
         }
-    }, [records, loadFromSQLite, savePrescriptionsToAS]);
+    }, [records, loadFromSQLite, savePrescriptionsToAS, notificationsEnabled, naggingMode, medicationLogs, confirmedMedsToday]);
 
     // ─── Delete Prescription ─────────────────────────────────
     const deletePrescription = useCallback(async (id: string) => {
@@ -333,6 +357,72 @@ export const MedProvider = ({ children }: { children: ReactNode }) => {
             console.error('Failed to delete prescription:', e);
         }
     }, [records, loadFromSQLite, savePrescriptionsToAS]);
+
+    // ─── Archive Prescription (End Treatment) ───────────────
+    const archivePrescriptionCtx = useCallback(async (id: string) => {
+        try {
+            if (useSQLite.current) {
+                await sqlArchivePrescription(id);
+                await loadFromSQLite();
+                // Reschedule notifications (archived meds will no longer appear)
+                const freshRecords = await sqlGetAllPrescriptions();
+                const freshLogs = await sqlGetMedicationLogsLegacy();
+                const freshConfirmed = await sqlGetConfirmedMedsForDate(formatLocalDate(new Date()));
+                await NotificationService.scheduleAll(
+                    freshRecords.map(r => ({ ...r, createdAt: r.createdAt || new Date().toISOString() })),
+                    notificationsEnabled,
+                    naggingMode,
+                    freshLogs,
+                    freshConfirmed
+                );
+            }
+        } catch (e) {
+            console.error('Failed to archive prescription:', e);
+        }
+    }, [loadFromSQLite, notificationsEnabled, naggingMode]);
+
+    // ─── Update Prescription (Safe Edit) ─────────────────────
+    const updatePrescriptionCtx = useCallback(async (prescription: Prescription) => {
+        try {
+            suppressScheduleRef.current = true;
+
+            if (useSQLite.current) {
+                const record: PrescriptionRecord = {
+                    id: prescription.id,
+                    hospital: prescription.hospital,
+                    date: prescription.date,
+                    duration: prescription.duration,
+                    medicines: prescription.medicines,
+                    images: prescription.images,
+                    createdAt: prescription.createdAt,
+                };
+                await sqlUpdatePrescription(record);
+                await loadFromSQLite();
+            }
+        } catch (e) {
+            console.error('Failed to update prescription:', e);
+        } finally {
+            setTimeout(async () => {
+                suppressScheduleRef.current = false;
+                try {
+                    if (useSQLite.current) {
+                        const freshRecords = await sqlGetAllPrescriptions();
+                        const freshLogs = await sqlGetMedicationLogsLegacy();
+                        const freshConfirmed = await sqlGetConfirmedMedsForDate(formatLocalDate(new Date()));
+                        await NotificationService.scheduleAll(
+                            freshRecords.map(r => ({ ...r, createdAt: r.createdAt || new Date().toISOString() })),
+                            notificationsEnabled,
+                            naggingMode,
+                            freshLogs,
+                            freshConfirmed
+                        );
+                    }
+                } catch (err) {
+                    console.error('MedNote: Post-edit scheduling failed:', err);
+                }
+            }, 2000);
+        }
+    }, [loadFromSQLite, notificationsEnabled, naggingMode]);
 
     // ─── Update Medication Log ───────────────────────────────
     const updateMedicationLog = useCallback(async (
@@ -396,6 +486,8 @@ export const MedProvider = ({ children }: { children: ReactNode }) => {
 
                 const confirmed = await sqlGetConfirmedMedsForDate(todayStr);
                 setConfirmedMedsToday(confirmed);
+                const catMap = await sqlGetCompletedAtMapForDate(todayStr);
+                setCompletedAtMap(catMap);
 
                 // Note: medicationLogs state is fully deprecated. Adherence is queried directly from DB.
             } else {
@@ -460,9 +552,12 @@ export const MedProvider = ({ children }: { children: ReactNode }) => {
         records,
         medicationLogs,
         addPrescription,
+        updatePrescription: updatePrescriptionCtx,
+        archivePrescription: archivePrescriptionCtx,
         deletePrescription,
         updateMedicationLog,
         confirmedMedsToday,
+        completedAtMap,
         updateConfirmedMed,
         clearConfirmedMeds,
         notificationsEnabled,
@@ -471,8 +566,8 @@ export const MedProvider = ({ children }: { children: ReactNode }) => {
         setNaggingMode,
         isLoading
     }), [
-        medicines, records, medicationLogs, confirmedMedsToday,
-        addPrescription, deletePrescription,
+        medicines, records, medicationLogs, confirmedMedsToday, completedAtMap,
+        addPrescription, updatePrescriptionCtx, archivePrescriptionCtx, deletePrescription,
         updateMedicationLog, updateConfirmedMed, clearConfirmedMeds,
         notificationsEnabled, naggingMode, setNotificationsEnabled, setNaggingMode,
         isLoading

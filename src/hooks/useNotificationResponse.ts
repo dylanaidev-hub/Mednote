@@ -69,6 +69,7 @@ export const useNotificationResponse = () => {
                     ...(Platform.OS === 'android' ? { channelId: 'default' } : {}),
                 },
                 trigger: {
+                    type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
                     seconds,
                     channelId: Platform.OS === 'android' ? 'default' : undefined,
                 } as any,

@@ -6,6 +6,41 @@ import { formatLocalDate } from '../utils/dateUtils';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+// ─── Nagging Mode Offsets (minutes after base time) ─────────────
+// 0 = đúng giờ, 5/15/30 = trễ bao nhiêu phút
+const NAGGING_OFFSETS = [0, 5, 15, 30];
+
+// ─── Nagging Messages ───────────────────────────────────────────
+function getNaggingContent(offset: number, slotKey: string, timeSlot: string, count: number, medNames: string) {
+    switch (offset) {
+        case 0:
+            return {
+                title: '💊 Đến giờ uống thuốc rồi!',
+                body: `Bạn có ${count} loại thuốc cần uống lúc ${timeSlot}: ${medNames}`,
+            };
+        case 5:
+            return {
+                title: 'Bạn quên mình rồi sao? 🥺',
+                body: `Cữ thuốc [${slotKey}] lúc ${timeSlot} đang buồn.`,
+            };
+        case 15:
+            return {
+                title: 'Báo động sức khỏe! 🚨',
+                body: `Đã trễ 15 phút! Uống thuốc mau: ${medNames}`,
+            };
+        case 30:
+            return {
+                title: 'MedNote bỏ cuộc đây... 💔',
+                body: `Cữ ${slotKey} lúc ${timeSlot} đã trễ 30 phút. Mình sẽ ngừng gọi.`,
+            };
+        default:
+            return {
+                title: '💊 Nhắc nhở uống thuốc',
+                body: `${medNames}`,
+            };
+    }
+}
+
 // Configure how notifications should be handled when the app is in the foreground
 Notifications.setNotificationHandler({
     handleNotification: async (notification) => {
@@ -59,6 +94,18 @@ function normalizeSlotKey(key: string): string {
         'tối': 'Tối', 'Tối': 'Tối',
     };
     return map[key] || key;
+}
+
+// ─── Generate deterministic notification ID ─────────────────────
+// Format: med_{dateStr}_{slotKey}_{timeSlot}_{offset}
+// Example: med_2026-03-12_Sáng_08:00_0, med_2026-03-12_Sáng_08:00_5
+function makeNotificationId(dateStr: string, slotKey: string, timeSlot: string, offset: number): string {
+    return `med_${dateStr}_${slotKey}_${timeSlot}_${offset}`;
+}
+
+// ─── Generate base schedule ID (without offset) ─────────────────
+function makeBaseScheduleId(dateStr: string, slotKey: string, timeSlot: string): string {
+    return `med_${dateStr}_${slotKey}_${timeSlot}`;
 }
 
 export const NotificationService = {
@@ -116,7 +163,8 @@ export const NotificationService = {
     },
 
     /**
-     * Schedule notifications for all active and future medicines
+     * Schedule notifications for all active and future medicines.
+     * Uses Date-based triggers and deterministic unique IDs.
      */
     async scheduleAll(
         records: Prescription[],
@@ -183,14 +231,12 @@ export const NotificationService = {
 
             const now = new Date();
             const daysToSchedule = 3;
-            const MIN_DELAY_SECONDS = 120; // Never fire within 2 min — prevents instant spam
             let totalScheduled = 0;
 
             for (let i = 0; i < daysToSchedule; i++) {
                 const targetDate = new Date(now);
                 targetDate.setDate(now.getDate() + i);
-                const triggerToday = new Date(targetDate);
-                const dateStr = formatLocalDate(triggerToday);
+                const dateStr = formatLocalDate(targetDate);
                 const isToday = i === 0;
 
                 const medsForThisDay: { med: MedicineEntry; time: string; slot: string; prescriptionId: string }[] = [];
@@ -202,7 +248,7 @@ export const NotificationService = {
                         return;
                     }
 
-                    const startDate = new Date(prescription.date);
+                    const startDate = new Date(prescription.date + 'T00:00:00');
                     startDate.setHours(0, 0, 0, 0);
 
                     const endDate = new Date(startDate);
@@ -237,6 +283,7 @@ export const NotificationService = {
                 // If no meds remaining for this day, skip scheduling entirely
                 if (medsForThisDay.length === 0) continue;
 
+                // Group meds by time slot (e.g., all meds at 08:00 go into one group)
                 const groupedByTime: Record<string, typeof medsForThisDay> = {};
                 medsForThisDay.forEach(item => {
                     if (!groupedByTime[item.time]) groupedByTime[item.time] = [];
@@ -245,55 +292,58 @@ export const NotificationService = {
 
                 for (const [timeSlot, items] of Object.entries(groupedByTime)) {
                     const [hours, minutes] = timeSlot.split(':').map(Number);
-                    const trigger = new Date(targetDate);
-                    trigger.setHours(hours, minutes, 0, 0);
 
-                    // For TODAY: if the base session time has already passed,
-                    // skip entirely — start from tomorrow for this slot
-                    if (isToday && trigger.getTime() <= Date.now()) {
-                        console.log(`MedNote: Skip [${items[0].slot}] ${timeSlot} today — session time already passed`);
-                        continue;
-                    }
+                    // Build the base trigger Date for this session
+                    const baseTriggerDate = new Date(targetDate);
+                    baseTriggerDate.setHours(hours, minutes, 0, 0);
 
                     const medNames = items.map(it => it.med.name).join(', ');
                     const count = items.length;
                     const slotKey = items[0].slot;
+                    const baseScheduleId = makeBaseScheduleId(dateStr, slotKey, timeSlot);
+                    const medIds = items.map(it => it.med.id);
 
-                    const timeline = naggingMode
-                        ? [
-                            { id: 'warmup', offset: -300, title: 'Nước đã rót sẵn chưa? 💧', body: `Chỉ còn 5 phút nữa là đến cữ thuốc [${slotKey}].` },
-                            { id: 'cta', offset: 0, title: '💊 Đến giờ uống thuốc rồi!', body: `Bạn có ${count} loại thuốc cần uống lúc ${timeSlot}: ${medNames}` },
-                            { id: 'guilt', offset: 300, title: 'Bạn quên mình rồi sao? 🥺', body: `Cữ thuốc lúc ${timeSlot} đang buồn.` },
-                            { id: 'urgent', offset: 900, title: 'Báo động sức khỏe! 🚨', body: `Uống thuốc mau!` },
-                            { id: 'passive', offset: 1800, title: 'MedNote bỏ cuộc đây... 💔', body: `Mình sẽ ngừng gọi.` }
-                        ]
-                        : [
-                            { id: 'cta', offset: 0, title: '💊 Đến giờ uống thuốc rồi!', body: `Bạn có ${count} loại thuốc cần uống lúc ${timeSlot}: ${medNames}` }
-                        ];
+                    // Determine which offsets to schedule
+                    const offsets = naggingMode ? NAGGING_OFFSETS : [0];
 
-                    for (const stage of timeline) {
-                        const stageTrigger = new Date(trigger.getTime() + stage.offset * 1000);
-                        const seconds = Math.floor((stageTrigger.getTime() - Date.now()) / 1000);
+                    for (const offset of offsets) {
+                        // Calculate the exact trigger date by adding offset minutes
+                        const triggerDate = new Date(baseTriggerDate.getTime() + offset * 60 * 1000);
 
-                        // Strict filtering: skip anything in the past OR too close to now
-                        if (seconds < MIN_DELAY_SECONDS) {
-                            console.log(`MedNote: Skip stage [${stage.id}] — only ${seconds}s away (min: ${MIN_DELAY_SECONDS}s)`);
+                        // ── GUARD: Only schedule if triggerDate is in the FUTURE ──
+                        if (triggerDate.getTime() <= Date.now()) {
+                            console.log(`MedNote: Skip [${slotKey}/${offset}min] — trigger time ${triggerDate.toLocaleTimeString()} is in the past`);
                             continue;
                         }
 
-                        console.log(`MedNote: Scheduling [${slotKey}/${stage.id}] in ${seconds}s (${Math.round(seconds / 60)}min)`);
+                        // Generate deterministic unique notification ID
+                        const notificationId = makeNotificationId(dateStr, slotKey, timeSlot, offset);
+
+                        // Get appropriate content for this offset
+                        const content = naggingMode
+                            ? getNaggingContent(offset, slotKey, timeSlot, count, medNames)
+                            : {
+                                title: '💊 Đến giờ uống thuốc rồi!',
+                                body: `Bạn có ${count} loại thuốc cần uống lúc ${timeSlot}: ${medNames}`,
+                            };
+
+                        const secondsUntilTrigger = Math.max(1, Math.floor((triggerDate.getTime() - Date.now()) / 1000));
+
+                        console.log(`MedNote: Scheduling [${notificationId}] at ${triggerDate.toLocaleTimeString()} (in ${secondsUntilTrigger}s / ${Math.round(secondsUntilTrigger / 60)}min)`);
 
                         await Notifications.scheduleNotificationAsync({
+                            identifier: notificationId,
                             content: {
-                                title: stage.title,
-                                body: stage.body,
+                                title: content.title,
+                                body: content.body,
                                 data: {
                                     type: 'MED_REMINDER',
                                     date: dateStr,
                                     time: timeSlot,
                                     slotKey: slotKey,
-                                    medIds: items.map(it => it.med.id),
-                                    stage: stage.id
+                                    medIds: medIds,
+                                    offset: offset,
+                                    baseScheduleId: baseScheduleId,
                                 },
                                 categoryIdentifier: NOTIFICATION_CATEGORY_ID,
                                 sound: true,
@@ -301,31 +351,51 @@ export const NotificationService = {
                             },
                             trigger: {
                                 type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-                                seconds,
+                                seconds: secondsUntilTrigger,
                                 repeats: false,
-                                ...(Platform.OS === 'android' ? { channelId: 'default' } : {}),
+                                channelId: Platform.OS === 'android' ? 'default' : undefined,
                             },
                         });
                         totalScheduled++;
                     }
                 }
             }
-            console.log(`MedNote: Successfully scheduled ${totalScheduled} notifications.`);
+            console.log(`MedNote: ✅ Successfully scheduled ${totalScheduled} notifications.`);
         } catch (error) {
             console.error("MedNote: Error during scheduling:", error);
         }
     },
 
     /**
-     * Cancel specific notification for a slot (when taken early)
+     * Deterministic Kill Switch: Cancel all nagging notifications for a specific slot.
+     * Loops through NAGGING_OFFSETS [0, 5, 15, 30] and cancels each unique ID.
      */
-    async cancelSpecificSlot(dateStr: string, slotKey: string) {
-        const scheduled = await Notifications.getAllScheduledNotificationsAsync();
-        for (const notif of scheduled) {
-            const data = notif.content.data;
-            if (data?.date === dateStr && data?.slotKey === slotKey) {
-                await Notifications.cancelScheduledNotificationAsync(notif.identifier);
+    async cancelSpecificSlot(dateStr: string, slotKey: string, timeSlot?: string) {
+        try {
+            if (timeSlot) {
+                // ── Fast path: we know the exact timeSlot → cancel all 4 IDs directly ──
+                for (const offset of NAGGING_OFFSETS) {
+                    const notificationId = makeNotificationId(dateStr, slotKey, timeSlot, offset);
+                    try {
+                        await Notifications.cancelScheduledNotificationAsync(notificationId);
+                        console.log(`MedNote: Cancelled [${notificationId}]`);
+                    } catch {
+                        // Notification may not exist (e.g., already fired or wasn't scheduled)
+                    }
+                }
+            } else {
+                // ── Fallback: scan all scheduled notifications and cancel by matching data ──
+                const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+                for (const notif of scheduled) {
+                    const data = notif.content.data;
+                    if (data?.date === dateStr && data?.slotKey === slotKey) {
+                        await Notifications.cancelScheduledNotificationAsync(notif.identifier);
+                        console.log(`MedNote: Cancelled (scan) [${notif.identifier}]`);
+                    }
+                }
             }
+        } catch (error) {
+            console.error('MedNote: Error cancelling notifications:', error);
         }
-    }
+    },
 };

@@ -143,11 +143,17 @@ export async function ensureAllDoseLogsForDate(dateStr: string): Promise<void> {
     const now = new Date();
     const todayDateOnly = formatLocalDate(now);
 
+    // ★ GUARD: Never generate dose_logs for dates before today (local time)
+    if (dateStr < todayDateOnly) {
+        console.log(`MedNote: ensureAllDoseLogsForDate BLOCKED — ${dateStr} is before today (${todayDateOnly})`);
+        return;
+    }
+
     console.log(`MedNote: ensureDoseLogsForDate for ${dateStr}`);
 
     // Find all active medications for the target date
-    const meds = await db.getAllAsync<{ id: string; created_at: number; start_date: string; duration: number }>(
-        `SELECT id, created_at, start_date, duration FROM medications
+    const meds = await db.getAllAsync<{ id: string; created_at: number; start_date: string; duration: number; weekdays: string | null }>(
+        `SELECT id, created_at, start_date, duration, weekdays FROM medications
          WHERE start_date IS NOT NULL
          AND date(start_date) <= date('${esc(dateStr)}')
          AND date(start_date, '+' || (duration - 1) || ' days') >= date('${esc(dateStr)}')`
@@ -170,6 +176,20 @@ export async function ensureAllDoseLogsForDate(dateStr: string): Promise<void> {
     for (const schedule of schedules) {
         const med = meds.find(m => m.id === schedule.medication_id);
         if (!med) continue;
+
+        // ★ Weekday Guard: skip if target date's day-of-week is not in allowed weekdays
+        if (med.weekdays) {
+            try {
+                const allowedDays: number[] = JSON.parse(med.weekdays);
+                const targetDay = new Date(dateStr + 'T00:00:00').getDay(); // 0=Sun..6=Sat
+                if (allowedDays.length > 0 && !allowedDays.includes(targetDay)) {
+                    console.log(`MedNote: Weekday guard ⛔ [${schedule.slot_key}] skipped — day ${targetDay} not in ${med.weekdays}`);
+                    continue;
+                }
+            } catch {
+                // Invalid JSON, treat as all days allowed
+            }
+        }
 
         // Day-1 Logic: check if the target date is the exact creation date
         const createdAtDateStr = formatLocalDate(new Date(med.created_at));
@@ -462,10 +482,10 @@ export function calculateComplianceFromDB(weekDays: DayProgress[]): number {
 export async function getConfirmedMedsForDate(dateStr: string): Promise<Record<string, string[]>> {
     const db = await getDB();
     const rows = await db.getAllAsync<{
-        medication_id: string;
+        schedule_id: string;
         slot_key: string;
     }>(
-        `SELECT dl.medication_id, s.slot_key
+        `SELECT dl.schedule_id, s.slot_key
          FROM dose_logs dl
          JOIN schedules s ON dl.schedule_id = s.id
          WHERE dl.scheduled_date = '${esc(dateStr)}' AND dl.status = 'COMPLETED'`
@@ -475,8 +495,8 @@ export async function getConfirmedMedsForDate(dateStr: string): Promise<Record<s
     rows.forEach(row => {
         const key = row.slot_key || 'Unknown';
         if (!result[key]) result[key] = [];
-        if (!result[key].includes(row.medication_id)) {
-            result[key].push(row.medication_id);
+        if (!result[key].includes(row.schedule_id)) {
+            result[key].push(row.schedule_id);
         }
     });
 
@@ -484,38 +504,65 @@ export async function getConfirmedMedsForDate(dateStr: string): Promise<Record<s
 }
 
 /**
+ * Get completed_at timestamps for confirmed dose_logs on a date.
+ * Returns schedule_id → completed_at (ms timestamp).
+ */
+export async function getCompletedAtMapForDate(dateStr: string): Promise<Record<string, number>> {
+    const db = await getDB();
+    const rows = await db.getAllAsync<{ schedule_id: string; completed_at: number }>(
+        `SELECT dl.schedule_id, dl.completed_at
+         FROM dose_logs dl
+         WHERE dl.scheduled_date = '${esc(dateStr)}' AND dl.status = 'COMPLETED' AND dl.completed_at IS NOT NULL`
+    );
+
+    const result: Record<string, number> = {};
+    rows.forEach(row => {
+        result[row.schedule_id] = row.completed_at;
+    });
+    return result;
+}
+
+/**
  * Confirm specific medicines in a slot for a date.
  */
-export async function confirmMedicines(slotKey: string, medIds: string[], dateStr: string): Promise<void> {
+export async function confirmMedicines(slotKey: string, scheduleIds: string[], dateStr: string): Promise<void> {
+    if (scheduleIds.length === 0) return;
     const db = await getDB();
-    const statements: string[] = [];
 
-    for (const medId of medIds) {
-        const schedules = await db.getAllAsync<{ id: string }>(
-            `SELECT id FROM schedules WHERE medication_id = '${esc(medId)}' AND slot_key = '${esc(slotKey)}'`
+    for (const scheduleId of scheduleIds) {
+        // Fast path: UPDATE existing dose_log
+        const result = await db.runAsync(
+            `UPDATE dose_logs SET status = 'COMPLETED', completed_at = ${Date.now()}
+             WHERE schedule_id = '${esc(scheduleId)}' AND scheduled_date = '${esc(dateStr)}'`
         );
 
-        for (const schedule of schedules) {
-            const logId = `${schedule.id}_${dateStr}`;
-            statements.push(
-                `INSERT OR REPLACE INTO dose_logs (id, schedule_id, medication_id, scheduled_date, status, completed_at)
-                 VALUES ('${esc(logId)}', '${esc(schedule.id)}', '${esc(medId)}', '${esc(dateStr)}', 'COMPLETED', ${Date.now()})`
+        if (result.changes === 0) {
+            // Self-healing: dose_log doesn't exist → create it from schedule data
+            const schedule = await db.getFirstAsync<{ medication_id: string }>(
+                `SELECT medication_id FROM schedules WHERE id = '${esc(scheduleId)}'`
             );
+            if (schedule) {
+                const logId = `${scheduleId}_${dateStr}`;
+                await db.runAsync(
+                    `INSERT OR REPLACE INTO dose_logs (id, schedule_id, medication_id, scheduled_date, status, completed_at)
+                     VALUES ('${esc(logId)}', '${esc(scheduleId)}', '${esc(schedule.medication_id)}', '${esc(dateStr)}', 'COMPLETED', ${Date.now()})`
+                );
+                console.log(`MedNote: confirmMedicines self-healed dose_log for schedule ${scheduleId}`);
+            } else {
+                console.warn(`MedNote: confirmMedicines — schedule ${scheduleId} not found in DB!`);
+            }
         }
-    }
-
-    if (statements.length > 0) {
-        await db.execAsync(statements.join(';\n') + ';');
     }
 }
 
 /**
  * Undo confirmation for specific medicines in a slot.
  */
-export async function undoConfirmMedicines(slotKey: string, medIds: string[], dateStr: string): Promise<void> {
+export async function undoConfirmMedicines(slotKey: string, scheduleIds: string[], dateStr: string): Promise<void> {
     const db = await getDB();
 
-    if (medIds.length === 0) {
+    if (scheduleIds.length === 0) {
+        // Undo ALL in this slot
         await db.execAsync(
             `UPDATE dose_logs SET status = 'PENDING', completed_at = NULL
              WHERE scheduled_date = '${esc(dateStr)}' AND schedule_id IN (
@@ -523,23 +570,11 @@ export async function undoConfirmMedicines(slotKey: string, medIds: string[], da
              )`
         );
     } else {
-        const statements: string[] = [];
-        for (const medId of medIds) {
-            const schedules = await db.getAllAsync<{ id: string }>(
-                `SELECT id FROM schedules WHERE medication_id = '${esc(medId)}' AND slot_key = '${esc(slotKey)}'`
-            );
-
-            for (const schedule of schedules) {
-                const logId = `${schedule.id}_${dateStr}`;
-                statements.push(
-                    `UPDATE dose_logs SET status = 'PENDING', completed_at = NULL WHERE id = '${esc(logId)}'`
-                );
-            }
-        }
-
-        if (statements.length > 0) {
-            await db.execAsync(statements.join(';\n') + ';');
-        }
+        const idList = scheduleIds.map(id => `'${esc(id)}'`).join(',');
+        await db.execAsync(
+            `UPDATE dose_logs SET status = 'PENDING', completed_at = NULL
+             WHERE schedule_id IN (${idList}) AND scheduled_date = '${esc(dateStr)}'`
+        );
     }
 }
 

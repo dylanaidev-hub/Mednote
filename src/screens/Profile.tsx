@@ -11,6 +11,7 @@ import { useToast } from '../context/ToastContext';
 import { useNavigation } from '@react-navigation/native';
 import { useUser } from '../context/UserContext';
 import { useMedContext } from '../context/MedContext';
+import PrimaryButton from '../components/PrimaryButton';
 
 
 const SP = { xs: 4, sm: 8, md: 16, lg: 24, xl: 32 };
@@ -230,7 +231,7 @@ export default function Profile() {
                         <View style={styles.separator} />
                         <SettingsItem
                             icon="repeat" iconColor="#f59e0b" iconBg="#fffbeb"
-                            label="Nhắc lại mỗi 5 phút"
+                            label="Trợ lý hối thúc"
                             isSwitch={true}
                             switchValue={naggingMode}
                             onSwitchToggle={(val: boolean) => {
@@ -243,6 +244,9 @@ export default function Profile() {
                                 }
                             }}
                         />
+                        <Text style={{ fontSize: 12, color: '#9ca3af', paddingHorizontal: 16, paddingBottom: 12, marginTop: -4, lineHeight: 17 }}>
+                            Gửi thêm 3 thông báo nhắc nhở (sau 5, 15, 30 phút) nếu bạn chưa uống thuốc.
+                        </Text>
                     </View>
                 </View>
 
@@ -404,13 +408,11 @@ export default function Profile() {
 
                         {/* Save Button */}
                         <View style={[styles.modalFooter, { paddingBottom: Math.max(insets.bottom, 20) }]}>
-                            <TouchableOpacity
-                                style={styles.saveBtn}
-                                activeOpacity={0.8}
+                            <PrimaryButton
+                                title="Lưu thông tin"
+                                icon="checkmark-circle-outline"
                                 onPress={handleSaveMedicalInfo}
-                            >
-                                <Text style={styles.saveBtnText}>Lưu thông tin</Text>
-                            </TouchableOpacity>
+                            />
                         </View>
                     </View>
                 </KeyboardAvoidingView>

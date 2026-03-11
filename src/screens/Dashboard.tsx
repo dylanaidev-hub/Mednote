@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { View, Text, ScrollView, StyleSheet, Platform, LayoutAnimation, TouchableOpacity, Animated, AppState } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, Platform, LayoutAnimation, TouchableOpacity, Animated, AppState, Alert } from 'react-native';
+import * as Location from 'expo-location';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { WeatherWidget } from '../components/WeatherWidget';
 import {
@@ -22,7 +23,7 @@ import { formatLocalDate } from '../utils/dateUtils';
 import { ConfettiEffect } from '../components/ConfettiEffect';
 
 export default function Dashboard() {
-    const { medicines, records, medicationLogs, updateMedicationLog, confirmedMedsToday, updateConfirmedMed, clearConfirmedMeds } = useMedContext();
+    const { medicines, records, medicationLogs, updateMedicationLog, confirmedMedsToday, completedAtMap, updateConfirmedMed, clearConfirmedMeds } = useMedContext();
     const navigation = useNavigation<any>();
 
     const [weather, setWeather] = useState<WeatherData | null>(null);
@@ -79,20 +80,40 @@ export default function Dashboard() {
     const loadWeather = async () => {
         const HANOI_LAT = 21.0285;
         const HANOI_LON = 105.8542;
+
         try {
             setWeatherLoading(true);
             setWeatherError(undefined);
-            const data = await fetchWeather(HANOI_LAT, HANOI_LON);
+
+            let lat = HANOI_LAT;
+            let lon = HANOI_LON;
+
+            // Request permission and get actual location
+            const { status } = await Location.requestForegroundPermissionsAsync();
+            if (status === 'granted') {
+                const location = await Location.getCurrentPositionAsync({
+                    accuracy: Location.Accuracy.Balanced,
+                });
+                lat = location.coords.latitude;
+                lon = location.coords.longitude;
+            } else {
+                console.log('Location permission denied, defaulting to Hanoi');
+            }
+
+            const data = await fetchWeather(lat, lon);
             if (data) {
+                // If it couldn't reverse-geocode, default to 'Hà Nội' only if we used Hanoi's coords
                 if (!data.cityName || data.cityName === 'Vị trí hiện tại') {
-                    data.cityName = 'Hà Nội';
+                    if (lat === HANOI_LAT) {
+                        data.cityName = 'Hà Nội';
+                    }
                 }
                 setWeather(data);
             } else {
                 setWeatherError('Không thể tải dữ liệu thời tiết.');
             }
         } catch (error) {
-            console.error('Weather loading error:', error);
+            console.error('Weather/Location error:', error);
             setWeatherError('Không thể tải dữ liệu thời tiết.');
         } finally {
             setWeatherLoading(false);
@@ -151,39 +172,11 @@ export default function Dashboard() {
         }
     }, [showToast, updateConfirmedMed]);
 
-    // ─── Sync with MedContext Medication Logs ────────────────
-    useEffect(() => {
-        const todayStr = formatLocalDate(new Date());
-
-        records.forEach(prescription => {
-            // Find all medicines belonging to this prescription in today's sessions
-            const pMeds = doseSessions.flatMap(s => s.medicines).filter(m => m.prescriptionId === prescription.id);
-            if (pMeds.length === 0) return;
-
-            // Check if all these medicines are confirmed in confirmedMedsToday
-            const allConfirmed = pMeds.every(m => {
-                const session = doseSessions.find(s => s.medicines.some(sm => sm.id === m.id));
-                return session && (confirmedMedsToday[session.slotKey] || []).includes(m.id);
-            });
-
-            const anyMissed = pMeds.some(m => {
-                const session = doseSessions.find(s => s.medicines.some(sm => sm.id === m.id));
-                if (!session) return false;
-                const dateState = getSessionDateState(session);
-                const isConfirmed = (confirmedMedsToday[session.slotKey] || []).includes(m.id);
-                return dateState === 'past' && !isConfirmed;
-            });
-
-            if (allConfirmed) {
-                updateMedicationLog(prescription.id, todayStr, 'taken');
-            } else if (anyMissed) {
-                updateMedicationLog(prescription.id, todayStr, 'missed');
-            } else {
-                // Note: MedContext's updateMedicationLog already handles stability check/no-op if status hasn't changed
-                updateMedicationLog(prescription.id, todayStr, null);
-            }
-        });
-    }, [confirmedMedsToday, doseSessions, records, updateMedicationLog, getSessionDateState]);
+    // ─── Legacy Sync removed ──────────────────────────────────
+    // The previous useEffect here was syncing confirmedMedsToday with
+    // updateMedicationLog. This was destructive: when not all items were
+    // confirmed, it called updateMedicationLog(null) which DELETED dose_logs.
+    // Dose tracking is now handled entirely through confirm/undo flow.
 
     // ─── Progress ────────────────────────────────────────────
     const totalMedsToday = doseSessions.reduce((acc, curr) => acc + curr.medicines.length, 0);
@@ -243,9 +236,6 @@ export default function Dashboard() {
     };
 
     // ─── Auto-hide toast-like behavior for All Done (optional) ───
-    // We'll keep the banner persistent in the list instead of a timed popup
-    // so it feels more stable as requested by the user.
-
     // ─── Storage Warning ─────────────────────────────────────
     const storageWarning = weather ? getStorageWarning(weather.temp) : null;
 
@@ -263,6 +253,8 @@ export default function Dashboard() {
                     errorMessage={weatherError}
                 />
 
+
+
                 {/* Storage Warning Banner */}
                 {storageWarning && (
                     <View style={styles.warningBanner}>
@@ -272,29 +264,38 @@ export default function Dashboard() {
                 )}
 
                 {/* Daily Progress Header */}
-                {medicines.length > 0 && (
-                    <View style={styles.progressHeader}>
-                        <Text style={styles.sectionTitle}>Hôm nay</Text>
-                        <Text style={styles.progressLabel}>
-                            {confirmedCount}/{totalMedsToday} thuốc
-                        </Text>
-                    </View>
-                )}
+                {medicines.length > 0 && (() => {
+                    const left = totalMedsToday - confirmedCount;
+                    const badgeStyle = allDone
+                        ? { bg: '#DCFCE7', text: '#15803D' }
+                        : confirmedCount > 0
+                            ? { bg: '#DBEAFE', text: '#1D4ED8' }
+                            : { bg: '#F3F4F6', text: '#4B5563' };
+                    const badgeText = allDone
+                        ? '✓ Hoàn thành'
+                        : confirmedCount > 0
+                            ? `Còn ${left} liều`
+                            : `0/${totalMedsToday} thuốc`;
 
-                {/* Progress bar */}
-                {medicines.length > 0 && (
-                    <View style={styles.progressBarContainer}>
-                        <View style={styles.progressBarBg}>
-                            <View style={[
-                                styles.progressBarFill,
-                                {
-                                    width: `${Math.round(progress * 100)}%`,
-                                    backgroundColor: allDone ? '#22c55e' : '#2563eb',
-                                },
-                            ]} />
+                    return (
+                        <View style={styles.progressHeader}>
+                            <Text style={styles.sectionTitle}>Hôm nay</Text>
+                            <View style={{
+                                backgroundColor: badgeStyle.bg,
+                                borderRadius: 16,
+                                paddingHorizontal: 12,
+                                paddingVertical: 5,
+                            }}>
+                                <Text style={{
+                                    fontSize: 13,
+                                    fontWeight: '700',
+                                    color: badgeStyle.text,
+                                }}>{badgeText}</Text>
+                            </View>
                         </View>
-                    </View>
-                )}
+                    );
+                })()}
+
 
                 {/* Dose Session Cards and Success State */}
                 {medicines.length === 0 ? (
@@ -338,6 +339,7 @@ export default function Dashboard() {
                                     session={session}
                                     isActive={activeSlotKey === session.slotKey}
                                     confirmedIds={confirmedMedsToday[session.slotKey] || []}
+                                    completedAtMap={completedAtMap}
                                     onConfirmItems={handleConfirmItems}
                                     onUndoItem={handleUndoMedicine}
                                     dateState={dateState}

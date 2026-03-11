@@ -21,6 +21,7 @@ export interface MedicationRow {
     start_date: string | null;
     images: string | null;
     note: string | null;
+    weekdays: string | null;
 }
 
 export interface ScheduleRow {
@@ -45,13 +46,16 @@ export interface PrescriptionRecord {
 // ─── Helpers ─────────────────────────────────────────────────────
 
 function normalizeSlotKey(key: string): string {
+    // Handle sub-time keys: "Sáng_sub_123" → "Sáng"
+    const baseKey = key.includes('_sub_') ? key.split('_sub_')[0] : key;
+
     const map: Record<string, string> = {
         'sáng': 'Sáng', 'Sáng': 'Sáng',
         'trưa': 'Trưa', 'Trưa': 'Trưa',
         'chiều': 'Chiều', 'Chiều': 'Chiều',
         'tối': 'Tối', 'Tối': 'Tối',
     };
-    return map[key] || key;
+    return map[baseKey] || baseKey;
 }
 
 function esc(val: string): string {
@@ -80,15 +84,29 @@ export async function insertPrescription(prescription: PrescriptionRecord): Prom
     const todayStr = formatLocalDate(now);
 
     for (const med of prescription.medicines) {
+        const weekdaysJson = med.weekdays ? JSON.stringify(med.weekdays) : null;
+        const weekdaysSql = weekdaysJson ? `'${esc(weekdaysJson)}'` : 'NULL';
         statements.push(
-            `INSERT OR REPLACE INTO medications (id, name, type, created_at, prescription_id, hospital, duration, start_date, images, note)
-             VALUES ('${esc(med.id)}', '${esc(med.name)}', '${type}', ${createdAtTs}, '${esc(prescription.id)}', '${esc(prescription.hospital)}', ${prescription.duration}, '${esc(prescription.date)}', '${esc(imagesJson)}', '${esc(med.note || '')}')`
+            `INSERT OR REPLACE INTO medications (id, name, type, created_at, prescription_id, hospital, duration, start_date, images, note, weekdays)
+             VALUES ('${esc(med.id)}', '${esc(med.name)}', '${type}', ${createdAtTs}, '${esc(prescription.id)}', '${esc(prescription.hospital)}', ${prescription.duration}, '${esc(prescription.date)}', '${esc(imagesJson)}', '${esc(med.note || '')}', ${weekdaysSql})`
         );
 
         const sessionTimes = med.sessionTimes || {};
+
+        // ★ Weekday Guard for Day-1: skip today's dose_logs if today is not in allowed weekdays
+        const todayDayOfWeek = now.getDay(); // 0=Sun..6=Sat
+        const skipToday = med.weekdays && med.weekdays.length > 0 && !med.weekdays.includes(todayDayOfWeek);
+        if (skipToday) {
+            console.log(`MedNote: Day-1 Weekday guard ⛔ ${med.name} → today (day ${todayDayOfWeek}) not in [${med.weekdays}], skipping all dose_logs for today`);
+        }
+
         for (const [slot, time] of Object.entries(sessionTimes)) {
             const normalizedSlot = normalizeSlotKey(slot);
-            const scheduleId = `${med.id}_${normalizedSlot}`;
+            // Sub-times need unique schedule IDs to avoid collisions
+            const isSubTime = slot.includes('_sub_');
+            const scheduleId = isSubTime
+                ? `${med.id}_${normalizedSlot}_sub_${slot.split('_sub_')[1]}`
+                : `${med.id}_${normalizedSlot}`;
             const dose = parseInt(med.quantity, 10) || 1;
 
             statements.push(
@@ -97,6 +115,8 @@ export async function insertPrescription(prescription: PrescriptionRecord): Prom
             );
 
             // ── Day-1 dose_log creation (Minutes-Since-Midnight comparison) ──
+            if (skipToday) continue; // Weekday guard: don't create dose_log for non-matching day
+
             const scheduleMinutes = getMinutesSinceMidnight(time); // e.g. "00:05" → 5
 
             if (scheduleMinutes > currentMinutes) {
@@ -112,6 +132,142 @@ export async function insertPrescription(prescription: PrescriptionRecord): Prom
                 console.log(`MedNote: Day-1 ⏭ ${med.name} [${normalizedSlot}] ${time} (${scheduleMinutes}min) <= now (${currentMinutes}min) → SKIP today`);
             }
         }
+    }
+
+    if (statements.length > 0) {
+        console.log(`MedNote: insertPrescription → executing ${statements.length} SQL statements`);
+        await db.execAsync(statements.join(';\n') + ';');
+        // Verify dose_logs were created
+        const doseLogCount = await db.getFirstAsync<{ cnt: number }>(
+            `SELECT COUNT(*) as cnt FROM dose_logs WHERE scheduled_date = '${esc(todayStr)}'`
+        );
+        console.log(`MedNote: insertPrescription → dose_logs for today after insert: ${doseLogCount?.cnt ?? 0}`);
+    }
+}
+
+// ─── UPDATE (Safe Edit — preserves COMPLETED dose_logs) ─────────
+
+export async function updatePrescription(prescription: PrescriptionRecord): Promise<void> {
+    const db = await getDB();
+    const now = new Date();
+    const todayStr = formatLocalDate(now);
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const type = prescription.duration === 999 ? 'routine' : 'prescription';
+    const imagesJson = prescription.images ? JSON.stringify(prescription.images) : '';
+
+    const statements: string[] = [];
+
+    for (const med of prescription.medicines) {
+        const weekdaysJson = med.weekdays ? JSON.stringify(med.weekdays) : null;
+        const weekdaysSql = weekdaysJson ? `'${esc(weekdaysJson)}'` : 'NULL';
+
+        // Step 1: UPDATE medication row
+        statements.push(
+            `UPDATE medications SET
+                name = '${esc(med.name)}',
+                type = '${type}',
+                duration = ${prescription.duration},
+                hospital = '${esc(prescription.hospital)}',
+                images = '${esc(imagesJson)}',
+                note = '${esc(med.note || '')}',
+                weekdays = ${weekdaysSql}
+             WHERE id = '${esc(med.id)}'`
+        );
+
+        // Step 2: DELETE old schedules for this med
+        statements.push(
+            `DELETE FROM schedules WHERE medication_id = '${esc(med.id)}'`
+        );
+
+        // Step 3: DELETE only PENDING future dose_logs (PROTECT COMPLETED!)
+        statements.push(
+            `DELETE FROM dose_logs
+             WHERE medication_id = '${esc(med.id)}'
+             AND scheduled_date >= '${esc(todayStr)}'
+             AND status = 'PENDING'`
+        );
+
+        const sessionTimes = med.sessionTimes || {};
+
+        // Weekday Guard for today
+        const todayDayOfWeek = now.getDay();
+        const skipToday = med.weekdays && med.weekdays.length > 0 && !med.weekdays.includes(todayDayOfWeek);
+
+        // Step 4: Re-create schedules + Day-1 dose_logs (same logic as insertPrescription)
+        for (const [slot, time] of Object.entries(sessionTimes)) {
+            const normalizedSlot = normalizeSlotKey(slot);
+            const isSubTime = slot.includes('_sub_');
+            const scheduleId = isSubTime
+                ? `${med.id}_${normalizedSlot}_sub_${slot.split('_sub_')[1]}`
+                : `${med.id}_${normalizedSlot}`;
+            const dose = parseInt(med.quantity, 10) || 1;
+
+            statements.push(
+                `INSERT OR REPLACE INTO schedules (id, medication_id, time, dose, slot_key, unit)
+                 VALUES ('${esc(scheduleId)}', '${esc(med.id)}', '${esc(time)}', ${dose}, '${esc(normalizedSlot)}', '${esc(med.unit || 'viên')}')`
+            );
+
+            // Day-1 dose_log creation
+            if (skipToday) continue;
+
+            const scheduleMinutes = getMinutesSinceMidnight(time);
+
+            // Check if a COMPLETED log already exists for today (don't overwrite)
+            if (scheduleMinutes > currentMinutes) {
+                const logId = `${scheduleId}_${todayStr}`;
+                statements.push(
+                    `INSERT OR IGNORE INTO dose_logs (id, schedule_id, medication_id, scheduled_date, status)
+                     VALUES ('${esc(logId)}', '${esc(scheduleId)}', '${esc(med.id)}', '${esc(todayStr)}', 'PENDING')`
+                );
+                console.log(`MedNote: Edit Day-1 ✅ ${med.name} [${normalizedSlot}] ${time} → PENDING today`);
+            } else {
+                console.log(`MedNote: Edit Day-1 ⏭ ${med.name} [${normalizedSlot}] ${time} → SKIP (past)`);
+            }
+        }
+    }
+
+    if (statements.length > 0) {
+        console.log(`MedNote: updatePrescription → executing ${statements.length} SQL statements`);
+        await db.execAsync(statements.join(';\n') + ';');
+    }
+}
+
+// ─── ARCHIVE (End Treatment — preserves COMPLETED logs) ─────────
+
+export async function archivePrescription(prescriptionId: string): Promise<void> {
+    const db = await getDB();
+    const todayStr = formatLocalDate(new Date());
+
+    // Get all medication IDs for this prescription
+    const meds = await db.getAllAsync<{ id: string; start_date: string }>(
+        `SELECT id, start_date FROM medications WHERE prescription_id = '${esc(prescriptionId)}' OR id = '${esc(prescriptionId)}'`
+    );
+
+    if (meds.length === 0) return;
+
+    const statements: string[] = [];
+
+    for (const med of meds) {
+        // Calculate new duration: days from start_date to today (inclusive)
+        const startDate = new Date(med.start_date + 'T00:00:00');
+        const today = new Date(todayStr + 'T00:00:00');
+        const diffMs = today.getTime() - startDate.getTime();
+        const newDuration = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+
+        // Step 1: Shrink duration to end today
+        statements.push(
+            `UPDATE medications SET duration = ${newDuration} WHERE id = '${esc(med.id)}'`
+        );
+
+        // Step 2: Delete PENDING dose_logs from today onward
+        statements.push(
+            `DELETE FROM dose_logs
+             WHERE medication_id = '${esc(med.id)}'
+             AND scheduled_date >= '${esc(todayStr)}'
+             AND status = 'PENDING'`
+        );
+
+        console.log(`MedNote: Archive ${med.id} → duration shrunk to ${newDuration}, PENDING future logs deleted`);
     }
 
     if (statements.length > 0) {
@@ -169,10 +325,26 @@ export async function getAllPrescriptions(): Promise<PrescriptionRecord[]> {
 
             medSchedules.forEach(s => {
                 if (s.slot_key) {
-                    sessionTimes[s.slot_key] = s.time;
-                    frequency.push(s.slot_key.toLowerCase());
+                    if (!sessionTimes[s.slot_key]) {
+                        // Primary time slot
+                        sessionTimes[s.slot_key] = s.time;
+                        frequency.push(s.slot_key.toLowerCase());
+                    } else {
+                        // Sub-time: same slot_key, different time
+                        const subKey = `${s.slot_key}_sub_${s.id}`;
+                        sessionTimes[subKey] = s.time;
+                        frequency.push(subKey);
+                    }
                 }
             });
+
+            // Parse weekdays from DB
+            let weekdays: number[] | undefined;
+            try {
+                weekdays = med.weekdays ? JSON.parse(med.weekdays) : undefined;
+            } catch {
+                weekdays = undefined;
+            }
 
             return {
                 id: med.id,
@@ -185,6 +357,7 @@ export async function getAllPrescriptions(): Promise<PrescriptionRecord[]> {
                 hasError: false,
                 source: (med.type === 'routine' ? 'routine' : 'prescription') as 'routine' | 'prescription',
                 prescriptionId: med.prescription_id || undefined,
+                weekdays,
             };
         });
 
@@ -231,8 +404,16 @@ export async function getActiveMedicinesForDate(date: Date): Promise<MedicineEnt
 
         medSchedules.forEach(s => {
             if (s.slot_key) {
-                sessionTimes[s.slot_key] = s.time;
-                frequency.push(s.slot_key.toLowerCase());
+                if (!sessionTimes[s.slot_key]) {
+                    // Primary time slot
+                    sessionTimes[s.slot_key] = s.time;
+                    frequency.push(s.slot_key.toLowerCase());
+                } else {
+                    // Sub-time: same slot_key, different time
+                    const subKey = `${s.slot_key}_sub_${s.id}`;
+                    sessionTimes[subKey] = s.time;
+                    frequency.push(subKey);
+                }
             }
         });
 
