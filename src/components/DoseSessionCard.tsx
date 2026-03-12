@@ -43,14 +43,17 @@ export function normalizeSlotKey(key: string): string {
     return 'sáng'; // Safe fallback
 }
 
-// Extract schedule_id from a sessionTimes key + medication id
-function getScheduleId(medId: string, sessionTimesKey: string): string {
+// Build schedule_id that matches DB format (used only to look up doseLogIdMap)
+function buildScheduleId(medId: string, sessionTimesKey: string): string {
+    const normalizedSlot = normalizeSlotKey(sessionTimesKey);
     if (sessionTimesKey.includes('_sub_')) {
-        // Sub-key format: "${slotKey}_sub_${schedule.id}" → schedule_id is after first _sub_
-        return sessionTimesKey.substring(sessionTimesKey.indexOf('_sub_') + 5);
+        const fullScheduleId = sessionTimesKey.substring(sessionTimesKey.indexOf('_sub_') + 5);
+        if (fullScheduleId.startsWith(medId)) {
+            return fullScheduleId;
+        }
+        return `${medId}_${normalizedSlot}_sub_${fullScheduleId}`;
     }
-    // Primary key: schedule_id = "${medId}_${NormalizedSlotKey}"
-    return `${medId}_${normalizeSlotKey(sessionTimesKey)}`;
+    return `${medId}_${normalizedSlot}`;
 }
 
 // Get exact time for a medicine entry (uses _virtualTime override if set)
@@ -65,7 +68,8 @@ function getMedTime(med: MedicineEntry, slotKey: string): string {
 const MEAL_ORDER = ['Trước ăn', 'Khi đói', 'Sau ăn', 'Tùy ý', 'Chưa định khung'];
 
 // ─── Group medicines into DoseSessions — 1 entry per time slot ───
-export function groupIntoDoseSessions(medicines: MedicineEntry[]): DoseSession[] {
+// doseLogIdMap: optional map from schedule_id → dose_log_id (from DB)
+export function groupIntoDoseSessions(medicines: MedicineEntry[], doseLogIdMap?: Record<string, string>): DoseSession[] {
     const sessionMap: Record<string, MedicineEntry[]> = {};
 
     medicines.forEach(med => {
@@ -78,17 +82,18 @@ export function groupIntoDoseSessions(medicines: MedicineEntry[]): DoseSession[]
                 const normalized = normalizeSlotKey(key);
                 if (!sessionMap[normalized]) sessionMap[normalized] = [];
 
-                // UNIQUE ID: med.id + key + time → FlatList won't swallow items
-                const uniqueId = `${med.id}_${key}_${sessionTimes[key]}`;
-                // Preserve actual schedule_id for confirm/undo DB operations
-                const scheduleId = getScheduleId(med.id, key);
+                const scheduleId = buildScheduleId(med.id, key);
+                // Resolve dose_log_id: pre-set (from flat row) > map lookup > fallback to scheduleId
+                const doseLogId = (med as any)._doseLogId
+                    || doseLogIdMap?.[scheduleId]
+                    || scheduleId;
 
-                // Dedup by uniqueId
-                if (!sessionMap[normalized].some(m => m.id === uniqueId)) {
+                // Dedup by doseLogId (absolute unique key)
+                if (!sessionMap[normalized].some(m => (m as any)._doseLogId === doseLogId)) {
                     sessionMap[normalized].push({
                         ...med,
-                        id: uniqueId,
-                        _scheduleId: scheduleId,
+                        id: doseLogId,
+                        _doseLogId: doseLogId,
                         _virtualTime: sessionTimes[key],
                     } as any);
                 }
@@ -98,10 +103,12 @@ export function groupIntoDoseSessions(medicines: MedicineEntry[]): DoseSession[]
                 const normalized = normalizeSlotKey(slot);
                 if (!sessionMap[normalized]) sessionMap[normalized] = [];
                 const scheduleId = `${med.id}_${normalized}`;
-                if (!sessionMap[normalized].some(m => m.id === scheduleId)) {
+                const doseLogId = doseLogIdMap?.[scheduleId] || scheduleId;
+                if (!sessionMap[normalized].some(m => (m as any)._doseLogId === doseLogId)) {
                     sessionMap[normalized].push({
                         ...med,
-                        id: scheduleId,
+                        id: doseLogId,
+                        _doseLogId: doseLogId,
                     } as any);
                 }
             });
@@ -339,9 +346,11 @@ export const DoseSessionCard = ({
     const pulseAnim = useRef(new Animated.Value(1)).current;
 
     const totalCount = session.medicines.length;
+    // Helper: get dose_log_id from medicine (the actual DB primary key)
+    const getDoseLogId = (m: MedicineEntry) => (m as any)._doseLogId || m.id;
     // Only count IDs that actually exist in this session's medicine list.
-    const validMedIds = new Set(session.medicines.map(m => m.id));
-    const validConfirmedIds = confirmedIds.filter(id => validMedIds.has(id));
+    const validDoseLogIds = new Set(session.medicines.map(getDoseLogId));
+    const validConfirmedIds = confirmedIds.filter(id => validDoseLogIds.has(id));
 
     // Combine confirmed and late counts for progress logic 
     const confirmedCount = validConfirmedIds.length;
@@ -396,11 +405,11 @@ export const DoseSessionCard = ({
 
     // ─── Confirm all remaining ───────────────────────────────
     const handleConfirmAll = useCallback(() => {
-        const remainingIds = session.medicines
-            .filter(m => !confirmedIds.includes(m.id))
-            .map(m => m.id);
-        if (remainingIds.length > 0) {
-            onConfirmItems(session.slotKey, remainingIds);
+        const remainingDoseLogIds = session.medicines
+            .filter(m => !confirmedIds.includes(getDoseLogId(m)))
+            .map(m => getDoseLogId(m));
+        if (remainingDoseLogIds.length > 0) {
+            onConfirmItems(session.slotKey, remainingDoseLogIds);
         }
     }, [session, confirmedIds, onConfirmItems]);
 
@@ -489,20 +498,20 @@ export const DoseSessionCard = ({
                                 <Text style={styles.timeSubHeaderText}>{time}</Text>
                             </View>
                             {timeGroups[time].map(med => {
-                                const sid = (med as any)._scheduleId || med.id;
-                                const isConfirmed = confirmedIds.includes(sid);
+                                const doseLogId = (med as any)._doseLogId || med.id;
+                                const isConfirmed = confirmedIds.includes(doseLogId);
                                 return (
                                     <MedicineItemRow
-                                        key={med.id}
-                                        med={{...med, id: sid}}
+                                        key={doseLogId}
+                                        med={{...med, id: doseLogId}}
                                         sessionKey={session.slotKey}
                                         isConfirmed={isConfirmed}
                                         dateState={dateState}
                                         isReadOnly={isReadOnly}
-                                        completedAt={completedAtMap[sid]}
+                                        completedAt={completedAtMap[doseLogId]}
                                         showCompletedTime={showCompletedTime}
-                                        onConfirm={() => handleConfirmOne(sid)}
-                                        onUndo={() => onUndoItem(session.slotKey, sid)}
+                                        onConfirm={() => handleConfirmOne(doseLogId)}
+                                        onUndo={() => onUndoItem(session.slotKey, doseLogId)}
                                     />
                                 );
                             })}

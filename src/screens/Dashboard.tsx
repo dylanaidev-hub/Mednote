@@ -21,9 +21,14 @@ import { NotificationService } from '../services/notificationService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { formatLocalDate } from '../utils/dateUtils';
 import { ConfettiEffect } from '../components/ConfettiEffect';
+import {
+    getDoseSessionsForDate as sqlGetDoseSessionsForDate,
+    ensureAllDoseLogsForDate as sqlEnsureAllTodayDoseLogs,
+    DoseSessionRow,
+} from '../database/doseLogDAO';
 
 export default function Dashboard() {
-    const { medicines, records, medicationLogs, updateMedicationLog, confirmedMedsToday, completedAtMap, updateConfirmedMed, clearConfirmedMeds, todayDoseLogKeys } = useMedContext();
+    const { records, confirmedMedsToday, completedAtMap, updateConfirmedMed, clearConfirmedMeds } = useMedContext();
     const navigation = useNavigation<any>();
 
     const [weather, setWeather] = useState<WeatherData | null>(null);
@@ -39,43 +44,42 @@ export default function Dashboard() {
     const isFirstRender = useRef(true);
     const wasAlreadyDone = useRef(false);
 
-    // ─── Filter medicines by dose_logs (SSoT) ────────────────
-    // Only show sessions that have actual dose_log entries for today.
-    // This prevents past-time sessions from appearing on Day-1.
-    const filteredMedicines = useMemo(() => {
-        // null = still loading from DB → show medicines to avoid empty flash
-        if (todayDoseLogKeys === null) return medicines;
-        // empty Set = loaded, no dose_logs for today → return empty (correct!)
+    // ─── Flat dose_log rows for today (SSoT) ─────────────────
+    const [todayDoseRows, setTodayDoseRows] = useState<DoseSessionRow[]>([]);
 
-        return medicines.map(med => {
-            const sessionTimes = med.sessionTimes || {};
-            const filteredSessionTimes: Record<string, string> = {};
-            const filteredFrequency: string[] = [];
+    // Fetch dose_logs on mount + whenever records or confirmedMedsToday changes
+    useEffect(() => {
+        const loadTodayDoses = async () => {
+            const todayStr = formatLocalDate(new Date());
+            await sqlEnsureAllTodayDoseLogs(todayStr);
+            const rows = await sqlGetDoseSessionsForDate(todayStr);
+            setTodayDoseRows(rows);
+        };
+        loadTodayDoses();
+    }, [records, confirmedMedsToday]);
 
-            Object.keys(sessionTimes).forEach(key => {
-                // normalizeSlotKey: "sáng_sub_123" → "sáng"
-                const base = key.split('_sub_')[0].toLowerCase();
-                const doseLogKey = `${med.id}_${base}`;
-
-                if (todayDoseLogKeys.has(doseLogKey)) {
-                    filteredSessionTimes[key] = sessionTimes[key];
-                    filteredFrequency.push(key);
-                }
-            });
-
-            // If no sessions match dose_logs, exclude this medicine
-            if (Object.keys(filteredSessionTimes).length === 0) return null;
-
+    // ─── Convert flat rows to MedicineEntry[] + DoseSession[] ─
+    const doseSessions = useMemo(() => {
+        // Each DoseSessionRow = 1 dose_log = 1 unique MedicineEntry
+        const flatMedicines = todayDoseRows.map(row => {
+            const slotKey = (row.slot_key || 'sáng').toLowerCase();
             return {
-                ...med,
-                sessionTimes: filteredSessionTimes,
-                frequency: filteredFrequency,
-            };
-        }).filter(Boolean) as typeof medicines;
-    }, [medicines, todayDoseLogKeys]);
-
-    // ─── Group medicines into dose sessions ──────────────────
-    const doseSessions = useMemo(() => groupIntoDoseSessions(filteredMedicines), [filteredMedicines]);
+                id: row.dose_log_id,
+                name: row.med_name,
+                quantity: String(row.dose),
+                unit: row.unit || 'viên',
+                frequency: [slotKey],
+                sessionTimes: { [slotKey]: row.time },
+                mealTiming: row.meal_timing || undefined,
+                note: row.note || '',
+                hasError: false,
+                source: (row.med_type === 'routine' ? 'routine' : 'prescription') as 'routine' | 'prescription',
+                prescriptionId: row.prescription_id || undefined,
+                _doseLogId: row.dose_log_id,
+            } as any;
+        });
+        return groupIntoDoseSessions(flatMedicines);
+    }, [todayDoseRows]);
 
     // ─── Midnight Auto-Refresh logic ─────────────────────────
     // Called any time we detect the calendar date has changed.
@@ -299,7 +303,7 @@ export default function Dashboard() {
                 )}
 
                 {/* Daily Progress Header */}
-                {filteredMedicines.length > 0 && (() => {
+                {todayDoseRows.length > 0 && (() => {
                     const left = totalMedsToday - confirmedCount;
                     const badgeStyle = allDone
                         ? { bg: '#DCFCE7', text: '#15803D' }
@@ -333,7 +337,7 @@ export default function Dashboard() {
 
 
                 {/* Dose Session Cards and Success State */}
-                {filteredMedicines.length === 0 ? (
+                {todayDoseRows.length === 0 ? (
                     <View style={styles.emptyState}>
                         <MaterialCommunityIcons name="pill-off" size={40} color="#d1d5db" />
                         <Text style={styles.emptyText}>Chưa có thuốc cần uống hôm nay</Text>

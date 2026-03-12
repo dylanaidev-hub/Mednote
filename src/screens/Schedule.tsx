@@ -68,49 +68,39 @@ const weekDays = (mon: Date): Date[] =>
 const VI_DOW = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
 const VI_MON = ['Th.1', 'Th.2', 'Th.3', 'Th.4', 'Th.5', 'Th.6', 'Th.7', 'Th.8', 'Th.9', 'Th.10', 'Th.11', 'Th.12'];
 
-/** Convert DoseSessionRow[] from DB into MedicineEntry[] for groupIntoDoseSessions */
-function doseSessionRowsToMedicines(rows: DoseSessionRow[]): MedicineEntry[] {
-    // Sort rows by time ASC for consistent primary/sub-time assignment
-    const sortedRows = [...rows].sort((a, b) => a.time.localeCompare(b.time));
+/**
+ * Convert DoseSessionRow[] from DB into flat MedicineEntry[] + doseLogIdMap.
+ * Each DoseSessionRow = 1 dose_log = 1 unique MedicineEntry.
+ * NO grouping by medication_id — avoids all overwrite/collision bugs.
+ */
+function doseSessionRowsToMedicines(rows: DoseSessionRow[]): { medicines: MedicineEntry[], doseLogIdMap: Record<string, string> } {
+    const doseLogIdMap: Record<string, string> = {};
 
-    // Group rows by medication_id to build MedicineEntry objects
-    const medMap = new Map<string, MedicineEntry>();
-
-    sortedRows.forEach(row => {
-        if (!medMap.has(row.medication_id)) {
-            medMap.set(row.medication_id, {
-                id: row.medication_id,
-                name: row.med_name,
-                quantity: String(row.dose),
-                unit: row.unit || 'viên',
-                frequency: [],
-                sessionTimes: {},
-                mealTiming: row.meal_timing || undefined,
-                note: row.note || '',
-                hasError: false,
-                source: (row.med_type === 'routine' ? 'routine' : 'prescription') as 'routine' | 'prescription',
-                prescriptionId: row.prescription_id || undefined,
-            });
+    const medicines: MedicineEntry[] = rows.map(row => {
+        // Build schedule_id → dose_log_id map
+        if (row.schedule_id && row.dose_log_id) {
+            doseLogIdMap[row.schedule_id] = row.dose_log_id;
         }
 
-        const med = medMap.get(row.medication_id)!;
-        const slotKey = (row.slot_key || '').toLowerCase(); // normalize to lowercase
-        if (slotKey) {
-            if (!med.sessionTimes[slotKey]) {
-                // Primary time slot (earliest time for this session)
-                med.sessionTimes[slotKey] = row.time;
-                med.frequency.push(slotKey.toLowerCase());
-            } else if (med.sessionTimes[slotKey] !== row.time) {
-                // Sub-time: same slot_key, different time
-                const subKey = `${slotKey}_sub_${row.schedule_id}`;
-                med.sessionTimes[subKey] = row.time;
-                med.frequency.push(subKey);
-            }
-            // Skip exact duplicates (same slot_key AND same time)
-        }
+        const slotKey = (row.slot_key || 'sáng').toLowerCase();
+
+        return {
+            id: row.dose_log_id, // Use dose_log_id as the unique ID
+            name: row.med_name,
+            quantity: String(row.dose),
+            unit: row.unit || 'viên',
+            frequency: [slotKey],
+            sessionTimes: { [slotKey]: row.time }, // Single time entry per medicine
+            mealTiming: row.meal_timing || undefined,
+            note: row.note || '',
+            hasError: false,
+            source: (row.med_type === 'routine' ? 'routine' : 'prescription') as 'routine' | 'prescription',
+            prescriptionId: row.prescription_id || undefined,
+            _doseLogId: row.dose_log_id, // Carry dose_log_id for confirm/undo
+        } as any;
     });
 
-    return Array.from(medMap.values());
+    return { medicines, doseLogIdMap };
 }
 
 // ─── Animated Progress Ring ───────────────────────────────────────
@@ -199,15 +189,15 @@ export default function Schedule() {
     }, [selectedDate, records, confirmedSlots]);
 
     // ── Convert DB rows to MedicineEntry[] → DoseSession[] ────
-    const meds = useMemo(() => doseSessionRowsToMedicines(doseSessions), [doseSessions]);
-    const sessions: DoseSession[] = useMemo(() => groupIntoDoseSessions(meds), [meds]);
+    const { medicines: meds, doseLogIdMap } = useMemo(() => doseSessionRowsToMedicines(doseSessions), [doseSessions]);
+    const sessions: DoseSession[] = useMemo(() => groupIntoDoseSessions(meds, doseLogIdMap), [meds, doseLogIdMap]);
 
-    // ── Build completedAtMap: schedule_id → completed_at timestamp ────
+    // ── Build completedAtMap: dose_log_id → completed_at timestamp ────
     const completedAtMap = useMemo(() => {
         const map: Record<string, number> = {};
         doseSessions.forEach(row => {
-            if (row.status === 'COMPLETED' && row.completed_at) {
-                map[row.schedule_id] = row.completed_at;
+            if (row.status === 'COMPLETED' && row.completed_at && row.dose_log_id) {
+                map[row.dose_log_id] = row.completed_at;
             }
         });
         return map;

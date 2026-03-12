@@ -28,6 +28,7 @@ import {
     setMedicationDateStatus as sqlSetMedicationDateStatus,
     getDoseLogSessionsForDate as sqlGetDoseLogSessionsForDate,
     ensureAllDoseLogsForDate as sqlEnsureAllTodayDoseLogs,
+    getDoseLogIdMapForDate as sqlGetDoseLogIdMapForDate,
 } from '../database/doseLogDAO';
 import { formatLocalDate } from '../utils/dateUtils';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -71,6 +72,7 @@ interface MedContextType {
     updateConfirmedMed: (slotKey: string, medIds: string[], isUndo?: boolean) => Promise<void>;
     clearConfirmedMeds: () => Promise<void>;
     todayDoseLogKeys: Set<string> | null;
+    todayDoseLogIdMap: Record<string, string>;
 }
 
 const MedContext = createContext<MedContextType | undefined>(undefined);
@@ -131,6 +133,7 @@ export const MedProvider = ({ children }: { children: ReactNode }) => {
     const [confirmedMedsToday, setConfirmedMedsToday] = useState<Record<string, string[]>>({});
     const [completedAtMap, setCompletedAtMap] = useState<Record<string, number>>({});
     const [todayDoseLogKeys, setTodayDoseLogKeys] = useState<Set<string> | null>(null);
+    const [todayDoseLogIdMap, setTodayDoseLogIdMap] = useState<Record<string, string>>({});
     const [isLoading, setIsLoading] = useState(true);
 
     // Track whether SQLite is working
@@ -203,6 +206,10 @@ export const MedProvider = ({ children }: { children: ReactNode }) => {
             // ★ Step 2: THEN load dose_log keys (now includes all active meds)
             const doseLogKeys = await sqlGetDoseLogSessionsForDate(todayStr);
             setTodayDoseLogKeys(doseLogKeys);
+
+            // ★ Step 3: Load schedule_id → dose_log_id mapping
+            const doseLogIdMap = await sqlGetDoseLogIdMapForDate(todayStr);
+            setTodayDoseLogIdMap(doseLogIdMap);
         } catch (e) {
             console.error('Failed to load from SQLite:', e);
             throw e; // propagate to fallback
@@ -567,12 +574,13 @@ export const MedProvider = ({ children }: { children: ReactNode }) => {
         setNaggingMode,
         isLoading,
         todayDoseLogKeys,
+        todayDoseLogIdMap,
     }), [
         medicines, records, medicationLogs, confirmedMedsToday, completedAtMap,
         addPrescription, updatePrescriptionCtx, archivePrescriptionCtx, deletePrescription,
         updateMedicationLog, updateConfirmedMed, clearConfirmedMeds,
         notificationsEnabled, naggingMode, setNotificationsEnabled, setNaggingMode,
-        isLoading, todayDoseLogKeys
+        isLoading, todayDoseLogKeys, todayDoseLogIdMap
     ]);
 
     return (

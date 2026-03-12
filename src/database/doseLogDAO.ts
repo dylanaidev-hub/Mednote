@@ -523,10 +523,10 @@ export function calculateComplianceFromDB(weekDays: DayProgress[]): number {
 export async function getConfirmedMedsForDate(dateStr: string): Promise<Record<string, string[]>> {
     const db = await getDB();
     const rows = await db.getAllAsync<{
-        schedule_id: string;
+        dose_log_id: string;
         slot_key: string;
     }>(
-        `SELECT dl.schedule_id, s.slot_key
+        `SELECT dl.id as dose_log_id, s.slot_key
          FROM dose_logs dl
          JOIN schedules s ON dl.schedule_id = s.id
          WHERE dl.scheduled_date = '${esc(dateStr)}' AND dl.status = 'COMPLETED'`
@@ -536,8 +536,8 @@ export async function getConfirmedMedsForDate(dateStr: string): Promise<Record<s
     rows.forEach(row => {
         const key = row.slot_key || 'Unknown';
         if (!result[key]) result[key] = [];
-        if (!result[key].includes(row.schedule_id)) {
-            result[key].push(row.schedule_id);
+        if (!result[key].includes(row.dose_log_id)) {
+            result[key].push(row.dose_log_id);
         }
     });
 
@@ -546,64 +546,61 @@ export async function getConfirmedMedsForDate(dateStr: string): Promise<Record<s
 
 /**
  * Get completed_at timestamps for confirmed dose_logs on a date.
- * Returns schedule_id → completed_at (ms timestamp).
+ * Returns dose_log_id → completed_at (ms timestamp).
  */
 export async function getCompletedAtMapForDate(dateStr: string): Promise<Record<string, number>> {
     const db = await getDB();
-    const rows = await db.getAllAsync<{ schedule_id: string; completed_at: number }>(
-        `SELECT dl.schedule_id, dl.completed_at
+    const rows = await db.getAllAsync<{ dose_log_id: string; completed_at: number }>(
+        `SELECT dl.id as dose_log_id, dl.completed_at
          FROM dose_logs dl
          WHERE dl.scheduled_date = '${esc(dateStr)}' AND dl.status = 'COMPLETED' AND dl.completed_at IS NOT NULL`
     );
 
     const result: Record<string, number> = {};
     rows.forEach(row => {
-        result[row.schedule_id] = row.completed_at;
+        result[row.dose_log_id] = row.completed_at;
     });
     return result;
 }
 
 /**
- * Confirm specific medicines in a slot for a date.
+ * Get schedule_id → dose_log_id mapping for a given date.
+ * Used by Dashboard to map schedule-based medicine entries to their dose_log primary keys.
  */
-export async function confirmMedicines(slotKey: string, scheduleIds: string[], dateStr: string): Promise<void> {
-    if (scheduleIds.length === 0) return;
+export async function getDoseLogIdMapForDate(dateStr: string): Promise<Record<string, string>> {
     const db = await getDB();
-
-    for (const scheduleId of scheduleIds) {
-        // Fast path: UPDATE existing dose_log
-        const result = await db.runAsync(
-            `UPDATE dose_logs SET status = 'COMPLETED', completed_at = ${Date.now()}
-             WHERE schedule_id = '${esc(scheduleId)}' AND scheduled_date = '${esc(dateStr)}'`
-        );
-
-        if (result.changes === 0) {
-            // Self-healing: dose_log doesn't exist → create it from schedule data
-            const schedule = await db.getFirstAsync<{ medication_id: string }>(
-                `SELECT medication_id FROM schedules WHERE id = '${esc(scheduleId)}'`
-            );
-            if (schedule) {
-                const logId = `${scheduleId}_${dateStr}`;
-                await db.runAsync(
-                    `INSERT OR REPLACE INTO dose_logs (id, schedule_id, medication_id, scheduled_date, status, completed_at)
-                     VALUES ('${esc(logId)}', '${esc(scheduleId)}', '${esc(schedule.medication_id)}', '${esc(dateStr)}', 'COMPLETED', ${Date.now()})`
-                );
-                console.log(`MedNote: confirmMedicines self-healed dose_log for schedule ${scheduleId}`);
-            } else {
-                console.warn(`MedNote: confirmMedicines — schedule ${scheduleId} not found in DB!`);
-            }
-        }
-    }
+    const rows = await db.getAllAsync<{ schedule_id: string; dose_log_id: string }>(
+        `SELECT schedule_id, id as dose_log_id FROM dose_logs WHERE scheduled_date = '${esc(dateStr)}'`
+    );
+    const result: Record<string, string> = {};
+    rows.forEach(row => {
+        result[row.schedule_id] = row.dose_log_id;
+    });
+    return result;
 }
 
 /**
- * Undo confirmation for specific medicines in a slot.
+ * Confirm specific dose_logs by their primary key (dose_log.id).
  */
-export async function undoConfirmMedicines(slotKey: string, scheduleIds: string[], dateStr: string): Promise<void> {
+export async function confirmMedicines(slotKey: string, doseLogIds: string[], dateStr: string): Promise<void> {
+    if (doseLogIds.length === 0) return;
     const db = await getDB();
 
-    if (scheduleIds.length === 0) {
-        // Undo ALL in this slot
+    const idList = doseLogIds.map(id => `'${esc(id)}'`).join(',');
+    await db.execAsync(
+        `UPDATE dose_logs SET status = 'COMPLETED', completed_at = ${Date.now()}
+         WHERE id IN (${idList})`
+    );
+}
+
+/**
+ * Undo confirmation for specific dose_logs by their primary key.
+ */
+export async function undoConfirmMedicines(slotKey: string, doseLogIds: string[], dateStr: string): Promise<void> {
+    const db = await getDB();
+
+    if (doseLogIds.length === 0) {
+        // Undo ALL in this slot for this date
         await db.execAsync(
             `UPDATE dose_logs SET status = 'PENDING', completed_at = NULL
              WHERE scheduled_date = '${esc(dateStr)}' AND schedule_id IN (
@@ -611,10 +608,10 @@ export async function undoConfirmMedicines(slotKey: string, scheduleIds: string[
              )`
         );
     } else {
-        const idList = scheduleIds.map(id => `'${esc(id)}'`).join(',');
+        const idList = doseLogIds.map(id => `'${esc(id)}'`).join(',');
         await db.execAsync(
             `UPDATE dose_logs SET status = 'PENDING', completed_at = NULL
-             WHERE schedule_id IN (${idList}) AND scheduled_date = '${esc(dateStr)}'`
+             WHERE id IN (${idList})`
         );
     }
 }
