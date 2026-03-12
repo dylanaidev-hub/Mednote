@@ -52,7 +52,8 @@ export async function initDB(): Promise<void> {
             start_date TEXT,
             images TEXT,
             note TEXT,
-            weekdays TEXT
+            weekdays TEXT,
+            meal_timing TEXT
         )
     `);
 
@@ -85,6 +86,13 @@ export async function initDB(): Promise<void> {
     // ── Safe migration: add weekdays column if missing ──
     try {
         await db.execAsync(`ALTER TABLE medications ADD COLUMN weekdays TEXT`);
+    } catch {
+        // Column already exists, ignore
+    }
+
+    // ── Safe migration: add meal_timing column if missing ──
+    try {
+        await db.execAsync(`ALTER TABLE medications ADD COLUMN meal_timing TEXT`);
     } catch {
         // Column already exists, ignore
     }

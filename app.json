@@ -2,7 +2,7 @@
   "expo": {
     "name": "MedNote",
     "slug": "MedNote",
-    "version": "1.0.0",
+    "version": "2.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -38,8 +38,9 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "0969deeb-69cb-493c-80a1-8423af93f226"
+        "projectId": "86fe1eb3-55dd-46e4-915e-05093b8e226e"
       }
-    }
+    },
+    "owner": "dylannguyennd96"
   }
 }

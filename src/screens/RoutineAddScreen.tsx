@@ -81,7 +81,7 @@ export default function RoutineAddScreen() {
 
     // ─── Validation ───────────────────────────────────────────
     const validate = (): boolean => {
-        if (!form.name.trim() || !form.quantity.trim() || form.frequency.length === 0 || !form.mealTiming) {
+        if (!form.name.trim() || !form.quantity.trim() || !form.mealTiming) {
             setHasError(true);
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
             return false;
@@ -149,7 +149,7 @@ export default function RoutineAddScreen() {
         }
     };
 
-    const showError = hasError && (!form.name.trim() || !form.quantity.trim() || form.frequency.length === 0 || !form.mealTiming);
+    const showError = hasError && (!form.name.trim() || !form.quantity.trim() || !form.mealTiming);
 
     return (
         <View style={[s.root, { paddingTop: 18 }]}>
@@ -169,6 +169,8 @@ export default function RoutineAddScreen() {
                 contentContainerStyle={s.scrollContent}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
+                extraScrollHeight={120}
+                enableOnAndroid
             >
                 {/* Info Banner */}
                 <View style={s.infoBanner}>
@@ -179,7 +181,7 @@ export default function RoutineAddScreen() {
                 </View>
 
                 {/* ═══ SECTION 1: Thông tin thuốc ══════════ */}
-                <Text style={s.sectionLabel}>Thông tin thuốc</Text>
+                <Text style={s.sectionLabel}>Thông tin thuốc <Text style={{ color: '#ef4444' }}>*</Text></Text>
 
                 {/* Tên thuốc */}
                 <View style={[s.inputWrap, showError && !form.name.trim() && s.inputWrapError]}>
@@ -199,7 +201,7 @@ export default function RoutineAddScreen() {
                     <Ionicons name="calculator-outline" size={18} color="#9ca3af" style={s.inputIcon} />
                     <TextInput
                         style={s.inputText}
-                        placeholder="Liều lượng (VD: 1, 2.5)"
+                        placeholder="Liều lượng (VD: 1, 2)"
                         placeholderTextColor="#d1d5db"
                         value={form.quantity}
                         onChangeText={v => update('quantity', v)}
@@ -226,7 +228,7 @@ export default function RoutineAddScreen() {
                 </ScrollView>
 
                 {/* ═══ SECTION 2: Thời điểm uống ══════════ */}
-                <Text style={[s.sectionLabel, s.sectionGap]}>Thời điểm uống</Text>
+                <Text style={[s.sectionLabel, s.sectionGap]}>Thời điểm uống <Text style={{ color: '#ef4444' }}>*</Text></Text>
                 <SessionTimeSelector
                     frequency={form.frequency}
                     sessionTimes={form.sessionTimes}
@@ -236,7 +238,7 @@ export default function RoutineAddScreen() {
 
                 {/* ═══ SECTION 2.5: Tần suất uống (Weekdays) ═════ */}
                 <Text style={[s.sectionLabel, s.sectionGap]}>Tần suất uống</Text>
-                <View style={[s.weekdayRow, showError && selectedWeekdays.length === 0 && s.gridError]}>
+                <View style={s.weekdayRow}>
                     {weekdayLabels.map(({ day, label }) => {
                         const isActive = selectedWeekdays.includes(day);
                         return (
@@ -261,7 +263,7 @@ export default function RoutineAddScreen() {
                 )}
 
                 {/* ═══ SECTION 3: Cách uống ════════════════ */}
-                <Text style={[s.sectionLabel, s.sectionGap]}>Cách uống so với bữa ăn</Text>
+                <Text style={[s.sectionLabel, s.sectionGap]}>Cách uống so với bữa ăn <Text style={{ color: '#ef4444' }}>*</Text></Text>
                 <View style={[s.mealGrid, showError && !form.mealTiming && s.gridError]}>
                     {mealTimings.map(t => (
                         <TouchableOpacity

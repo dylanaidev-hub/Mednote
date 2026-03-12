@@ -23,7 +23,7 @@ import { formatLocalDate } from '../utils/dateUtils';
 import { ConfettiEffect } from '../components/ConfettiEffect';
 
 export default function Dashboard() {
-    const { medicines, records, medicationLogs, updateMedicationLog, confirmedMedsToday, completedAtMap, updateConfirmedMed, clearConfirmedMeds } = useMedContext();
+    const { medicines, records, medicationLogs, updateMedicationLog, confirmedMedsToday, completedAtMap, updateConfirmedMed, clearConfirmedMeds, todayDoseLogKeys } = useMedContext();
     const navigation = useNavigation<any>();
 
     const [weather, setWeather] = useState<WeatherData | null>(null);
@@ -39,8 +39,43 @@ export default function Dashboard() {
     const isFirstRender = useRef(true);
     const wasAlreadyDone = useRef(false);
 
+    // ─── Filter medicines by dose_logs (SSoT) ────────────────
+    // Only show sessions that have actual dose_log entries for today.
+    // This prevents past-time sessions from appearing on Day-1.
+    const filteredMedicines = useMemo(() => {
+        // null = still loading from DB → show medicines to avoid empty flash
+        if (todayDoseLogKeys === null) return medicines;
+        // empty Set = loaded, no dose_logs for today → return empty (correct!)
+
+        return medicines.map(med => {
+            const sessionTimes = med.sessionTimes || {};
+            const filteredSessionTimes: Record<string, string> = {};
+            const filteredFrequency: string[] = [];
+
+            Object.keys(sessionTimes).forEach(key => {
+                // normalizeSlotKey: "sáng_sub_123" → "sáng"
+                const base = key.split('_sub_')[0].toLowerCase();
+                const doseLogKey = `${med.id}_${base}`;
+
+                if (todayDoseLogKeys.has(doseLogKey)) {
+                    filteredSessionTimes[key] = sessionTimes[key];
+                    filteredFrequency.push(key);
+                }
+            });
+
+            // If no sessions match dose_logs, exclude this medicine
+            if (Object.keys(filteredSessionTimes).length === 0) return null;
+
+            return {
+                ...med,
+                sessionTimes: filteredSessionTimes,
+                frequency: filteredFrequency,
+            };
+        }).filter(Boolean) as typeof medicines;
+    }, [medicines, todayDoseLogKeys]);
+
     // ─── Group medicines into dose sessions ──────────────────
-    const doseSessions = useMemo(() => groupIntoDoseSessions(medicines), [medicines]);
+    const doseSessions = useMemo(() => groupIntoDoseSessions(filteredMedicines), [filteredMedicines]);
 
     // ─── Midnight Auto-Refresh logic ─────────────────────────
     // Called any time we detect the calendar date has changed.
@@ -264,7 +299,7 @@ export default function Dashboard() {
                 )}
 
                 {/* Daily Progress Header */}
-                {medicines.length > 0 && (() => {
+                {filteredMedicines.length > 0 && (() => {
                     const left = totalMedsToday - confirmedCount;
                     const badgeStyle = allDone
                         ? { bg: '#DCFCE7', text: '#15803D' }
@@ -298,7 +333,7 @@ export default function Dashboard() {
 
 
                 {/* Dose Session Cards and Success State */}
-                {medicines.length === 0 ? (
+                {filteredMedicines.length === 0 ? (
                     <View style={styles.emptyState}>
                         <MaterialCommunityIcons name="pill-off" size={40} color="#d1d5db" />
                         <Text style={styles.emptyText}>Chưa có thuốc cần uống hôm nay</Text>

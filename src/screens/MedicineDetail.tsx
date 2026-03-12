@@ -34,6 +34,25 @@ export default function MedicineDetail() {
             </View>
 
             <View className="p-4">
+                {/* Meal Timing */}
+                {medicine.mealTiming ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12, backgroundColor: '#FFF7ED', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#FDBA74' }}>
+                        <Ionicons name="restaurant-outline" size={18} color="#EA580C" />
+                        <Text style={{ marginLeft: 8, fontSize: 15, fontWeight: '600', color: '#EA580C' }}>{medicine.mealTiming}</Text>
+                    </View>
+                ) : null}
+
+                {/* Note */}
+                {medicine.note ? (
+                    <View style={{ backgroundColor: '#F9FAFB', padding: 12, borderRadius: 12, marginBottom: 12, borderWidth: 1, borderColor: '#E5E7EB' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                            <Ionicons name="create-outline" size={16} color="#6B7280" />
+                            <Text style={{ marginLeft: 6, fontSize: 13, fontWeight: '600', color: '#6B7280' }}>Ghi chú</Text>
+                        </View>
+                        <Text style={{ fontSize: 15, color: '#374151', lineHeight: 22 }}>{medicine.note}</Text>
+                    </View>
+                ) : null}
+
                 <Text className="text-xl font-bold text-text mb-4">Hướng dẫn của Bác sĩ</Text>
                 <View className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex-row items-start">
                     <Ionicons name="information-circle" size={24} color="#2563eb" />

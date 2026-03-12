@@ -6,7 +6,7 @@
 
 import { getDB } from './database';
 import { MedicineEntry } from '../types/medicine';
-import { formatLocalDate } from '../utils/dateUtils';
+import { formatLocalDate, parseSQLiteDate } from '../utils/dateUtils';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -22,6 +22,7 @@ export interface MedicationRow {
     images: string | null;
     note: string | null;
     weekdays: string | null;
+    meal_timing: string | null;
 }
 
 export interface ScheduleRow {
@@ -46,16 +47,14 @@ export interface PrescriptionRecord {
 // ─── Helpers ─────────────────────────────────────────────────────
 
 function normalizeSlotKey(key: string): string {
-    // Handle sub-time keys: "Sáng_sub_123" → "Sáng"
-    const baseKey = key.includes('_sub_') ? key.split('_sub_')[0] : key;
-
-    const map: Record<string, string> = {
-        'sáng': 'Sáng', 'Sáng': 'Sáng',
-        'trưa': 'Trưa', 'Trưa': 'Trưa',
-        'chiều': 'Chiều', 'Chiều': 'Chiều',
-        'tối': 'Tối', 'Tối': 'Tối',
-    };
-    return map[baseKey] || baseKey;
+    if (!key) return 'sáng';
+    // Strip _sub_ suffix and lowercase for comparison
+    const base = key.split('_sub_')[0].toLowerCase();
+    if (base === 'sáng' || base === 'morning') return 'sáng';
+    if (base === 'trưa' || base === 'noon') return 'trưa';
+    if (base === 'chiều' || base === 'afternoon') return 'chiều';
+    if (base === 'tối' || base === 'evening') return 'tối';
+    return 'sáng'; // Safe fallback
 }
 
 function esc(val: string): string {
@@ -87,8 +86,8 @@ export async function insertPrescription(prescription: PrescriptionRecord): Prom
         const weekdaysJson = med.weekdays ? JSON.stringify(med.weekdays) : null;
         const weekdaysSql = weekdaysJson ? `'${esc(weekdaysJson)}'` : 'NULL';
         statements.push(
-            `INSERT OR REPLACE INTO medications (id, name, type, created_at, prescription_id, hospital, duration, start_date, images, note, weekdays)
-             VALUES ('${esc(med.id)}', '${esc(med.name)}', '${type}', ${createdAtTs}, '${esc(prescription.id)}', '${esc(prescription.hospital)}', ${prescription.duration}, '${esc(prescription.date)}', '${esc(imagesJson)}', '${esc(med.note || '')}', ${weekdaysSql})`
+            `INSERT OR REPLACE INTO medications (id, name, type, created_at, prescription_id, hospital, duration, start_date, images, note, weekdays, meal_timing)
+             VALUES ('${esc(med.id)}', '${esc(med.name)}', '${type}', ${createdAtTs}, '${esc(prescription.id)}', '${esc(prescription.hospital)}', ${prescription.duration}, '${esc(prescription.date)}', '${esc(imagesJson)}', '${esc(med.note || '')}', ${weekdaysSql}, '${esc(med.mealTiming || '')}')`
         );
 
         const sessionTimes = med.sessionTimes || {};
@@ -100,7 +99,10 @@ export async function insertPrescription(prescription: PrescriptionRecord): Prom
             console.log(`MedNote: Day-1 Weekday guard ⛔ ${med.name} → today (day ${todayDayOfWeek}) not in [${med.weekdays}], skipping all dose_logs for today`);
         }
 
-        for (const [slot, time] of Object.entries(sessionTimes)) {
+        // Sort sessionTimes entries by time value (ascending) for consistent processing
+        const sortedEntries = Object.entries(sessionTimes).sort((a, b) => a[1].localeCompare(b[1]));
+
+        for (const [slot, time] of sortedEntries) {
             const normalizedSlot = normalizeSlotKey(slot);
             // Sub-times need unique schedule IDs to avoid collisions
             const isSubTime = slot.includes('_sub_');
@@ -170,7 +172,8 @@ export async function updatePrescription(prescription: PrescriptionRecord): Prom
                 hospital = '${esc(prescription.hospital)}',
                 images = '${esc(imagesJson)}',
                 note = '${esc(med.note || '')}',
-                weekdays = ${weekdaysSql}
+                weekdays = ${weekdaysSql},
+                meal_timing = '${esc(med.mealTiming || '')}'
              WHERE id = '${esc(med.id)}'`
         );
 
@@ -193,8 +196,11 @@ export async function updatePrescription(prescription: PrescriptionRecord): Prom
         const todayDayOfWeek = now.getDay();
         const skipToday = med.weekdays && med.weekdays.length > 0 && !med.weekdays.includes(todayDayOfWeek);
 
+        // Sort sessionTimes entries by time value (ascending) for consistent processing
+        const sortedEntries = Object.entries(sessionTimes).sort((a, b) => a[1].localeCompare(b[1]));
+
         // Step 4: Re-create schedules + Day-1 dose_logs (same logic as insertPrescription)
-        for (const [slot, time] of Object.entries(sessionTimes)) {
+        for (const [slot, time] of sortedEntries) {
             const normalizedSlot = normalizeSlotKey(slot);
             const isSubTime = slot.includes('_sub_');
             const scheduleId = isSubTime
@@ -323,18 +329,23 @@ export async function getAllPrescriptions(): Promise<PrescriptionRecord[]> {
             const sessionTimes: Record<string, string> = {};
             const frequency: string[] = [];
 
+            // Sort by time ASC so earliest time is always the primary slot
+            medSchedules.sort((a, b) => a.time.localeCompare(b.time));
+
             medSchedules.forEach(s => {
-                if (s.slot_key) {
-                    if (!sessionTimes[s.slot_key]) {
-                        // Primary time slot
-                        sessionTimes[s.slot_key] = s.time;
-                        frequency.push(s.slot_key.toLowerCase());
-                    } else {
+                const slotKey = (s.slot_key || '').toLowerCase(); // normalize to lowercase
+                if (slotKey) {
+                    if (!sessionTimes[slotKey]) {
+                        // Primary time slot (earliest time for this session)
+                        sessionTimes[slotKey] = s.time;
+                        frequency.push(slotKey);
+                    } else if (sessionTimes[slotKey] !== s.time) {
                         // Sub-time: same slot_key, different time
-                        const subKey = `${s.slot_key}_sub_${s.id}`;
+                        const subKey = `${slotKey}_sub_${s.id}`;
                         sessionTimes[subKey] = s.time;
                         frequency.push(subKey);
                     }
+                    // Skip exact duplicates (same slot_key AND same time)
                 }
             });
 
@@ -353,6 +364,7 @@ export async function getAllPrescriptions(): Promise<PrescriptionRecord[]> {
                 unit: medSchedules[0]?.unit || 'viên',
                 frequency,
                 sessionTimes,
+                mealTiming: med.meal_timing || undefined,
                 note: med.note || '',
                 hasError: false,
                 source: (med.type === 'routine' ? 'routine' : 'prescription') as 'routine' | 'prescription',
@@ -371,11 +383,11 @@ export async function getAllPrescriptions(): Promise<PrescriptionRecord[]> {
         prescriptions.push({
             id: prescriptionId,
             hospital: first.hospital || '',
-            date: first.start_date || new Date(first.created_at).toISOString(),
+            date: first.start_date || parseSQLiteDate(first.created_at).toISOString(),
             duration: first.duration,
             medicines,
             images,
-            createdAt: new Date(first.created_at).toISOString(),
+            createdAt: parseSQLiteDate(first.created_at).toISOString(),
         });
     }
 
@@ -424,6 +436,7 @@ export async function getActiveMedicinesForDate(date: Date): Promise<MedicineEnt
             unit: medSchedules[0]?.unit || 'viên',
             frequency,
             sessionTimes,
+            mealTiming: med.meal_timing || undefined,
             note: med.note || '',
             hasError: false,
             source: (med.type === 'routine' ? 'routine' : 'prescription') as 'routine' | 'prescription',

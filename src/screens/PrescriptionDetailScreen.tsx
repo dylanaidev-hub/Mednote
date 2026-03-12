@@ -206,6 +206,7 @@ export default function PrescriptionDetailScreen() {
                         </View>
                     )}
 
+
                     {/* 3. Status & Progress Card - Consolidated with Divider (Non-routine) */}
                     {!isRoutine && (
                         <View
@@ -436,6 +437,25 @@ export default function PrescriptionDetailScreen() {
                                     });
                                 })()}
                             </View>
+
+                            {/* Meal Timing */}
+                            {med.mealTiming ? (
+                                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF7ED', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, borderWidth: 1, borderColor: '#FDBA74', marginTop: 12 }}>
+                                    <Ionicons name="restaurant-outline" size={16} color="#EA580C" />
+                                    <Text style={{ marginLeft: 6, fontSize: 14, fontWeight: '600', color: '#EA580C' }}>{med.mealTiming}</Text>
+                                </View>
+                            ) : null}
+
+                            {/* Note */}
+                            {med.note ? (
+                                <View style={{ backgroundColor: '#F9FAFB', padding: 12, borderRadius: 12, marginTop: 8, borderWidth: 1, borderColor: '#E5E7EB' }}>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                                        <Ionicons name="create-outline" size={14} color="#6B7280" />
+                                        <Text style={{ marginLeft: 4, fontSize: 12, fontWeight: '700', color: '#6B7280' }}>Ghi chú</Text>
+                                    </View>
+                                    <Text style={{ fontSize: 14, color: '#374151', lineHeight: 20 }}>{med.note}</Text>
+                                </View>
+                            ) : null}
                         </View>
                     );
                 })}

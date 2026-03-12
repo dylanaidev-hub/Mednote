@@ -70,6 +70,7 @@ interface MedContextType {
     completedAtMap: Record<string, number>;
     updateConfirmedMed: (slotKey: string, medIds: string[], isUndo?: boolean) => Promise<void>;
     clearConfirmedMeds: () => Promise<void>;
+    todayDoseLogKeys: Set<string> | null;
 }
 
 const MedContext = createContext<MedContextType | undefined>(undefined);
@@ -564,13 +565,14 @@ export const MedProvider = ({ children }: { children: ReactNode }) => {
         naggingMode,
         setNotificationsEnabled,
         setNaggingMode,
-        isLoading
+        isLoading,
+        todayDoseLogKeys,
     }), [
         medicines, records, medicationLogs, confirmedMedsToday, completedAtMap,
         addPrescription, updatePrescriptionCtx, archivePrescriptionCtx, deletePrescription,
         updateMedicationLog, updateConfirmedMed, clearConfirmedMeds,
         notificationsEnabled, naggingMode, setNotificationsEnabled, setNaggingMode,
-        isLoading
+        isLoading, todayDoseLogKeys
     ]);
 
     return (

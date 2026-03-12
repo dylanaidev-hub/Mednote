@@ -25,27 +25,22 @@ export interface DoseSession {
 
 // ─── Slot Configuration ──────────────────────────────────────────
 const SLOT_CONFIG: Record<string, { label: string; icon: string; iconColor: string; time: string; hour: number; order: number }> = {
-    'Sáng': { label: 'Buổi Sáng', icon: 'weather-sunny', iconColor: '#f59e0b', time: '08:00', hour: 8, order: 0 },
     'sáng': { label: 'Buổi Sáng', icon: 'weather-sunny', iconColor: '#f59e0b', time: '08:00', hour: 8, order: 0 },
-    'Trưa': { label: 'Buổi Trưa', icon: 'weather-partly-cloudy', iconColor: '#f97316', time: '12:00', hour: 12, order: 1 },
     'trưa': { label: 'Buổi Trưa', icon: 'weather-partly-cloudy', iconColor: '#f97316', time: '12:00', hour: 12, order: 1 },
-    'Chiều': { label: 'Buổi Chiều', icon: 'weather-sunset', iconColor: '#ef4444', time: '18:00', hour: 18, order: 2 },
     'chiều': { label: 'Buổi Chiều', icon: 'weather-sunset', iconColor: '#ef4444', time: '18:00', hour: 18, order: 2 },
-    'Tối': { label: 'Buổi Tối', icon: 'moon-waning-crescent', iconColor: '#6366f1', time: '21:00', hour: 21, order: 3 },
     'tối': { label: 'Buổi Tối', icon: 'moon-waning-crescent', iconColor: '#6366f1', time: '21:00', hour: 21, order: 3 },
 };
 
-// Normalize slot key to capitalized form
-function normalizeSlotKey(key: string): string {
-    // Handle sub-time keys: "Sáng_sub_123" → "Sáng"
-    const baseKey = key.includes('_sub_') ? key.split('_sub_')[0] : key;
-    const map: Record<string, string> = {
-        'sáng': 'Sáng', 'Sáng': 'Sáng',
-        'trưa': 'Trưa', 'Trưa': 'Trưa',
-        'chiều': 'Chiều', 'Chiều': 'Chiều',
-        'tối': 'Tối', 'Tối': 'Tối',
-    };
-    return map[baseKey] || baseKey;
+// Normalize slot key — robust case-insensitive mapping with safe fallback
+export function normalizeSlotKey(key: string): string {
+    if (!key) return 'sáng';
+    // Strip _sub_ suffix and lowercase for comparison
+    const base = key.split('_sub_')[0].toLowerCase();
+    if (base === 'sáng' || base === 'morning') return 'sáng';
+    if (base === 'trưa' || base === 'noon') return 'trưa';
+    if (base === 'chiều' || base === 'afternoon') return 'chiều';
+    if (base === 'tối' || base === 'evening') return 'tối';
+    return 'sáng'; // Safe fallback
 }
 
 // Extract schedule_id from a sessionTimes key + medication id
@@ -82,14 +77,19 @@ export function groupIntoDoseSessions(medicines: MedicineEntry[]): DoseSession[]
             keys.forEach(key => {
                 const normalized = normalizeSlotKey(key);
                 if (!sessionMap[normalized]) sessionMap[normalized] = [];
+
+                // UNIQUE ID: med.id + key + time → FlatList won't swallow items
+                const uniqueId = `${med.id}_${key}_${sessionTimes[key]}`;
+                // Preserve actual schedule_id for confirm/undo DB operations
                 const scheduleId = getScheduleId(med.id, key);
 
-                // Dedup by scheduleId
-                if (!sessionMap[normalized].some(m => m.id === scheduleId)) {
+                // Dedup by uniqueId
+                if (!sessionMap[normalized].some(m => m.id === uniqueId)) {
                     sessionMap[normalized].push({
                         ...med,
-                        id: scheduleId,       // schedule_id for confirm/undo
-                        _virtualTime: sessionTimes[key], // specific time for this slot
+                        id: uniqueId,
+                        _scheduleId: scheduleId,
+                        _virtualTime: sessionTimes[key],
                     } as any);
                 }
             });
@@ -261,6 +261,21 @@ const MedicineItemRow: React.FC<MedicineItemRowProps> = ({ med, sessionKey, isCo
                             {med.dosage || `${med.quantity} ${med.unit}`}
                         </Text>
                     </View>
+                    {/* Meal Timing Badge */}
+                    {med.mealTiming ? (
+                        <View style={styles.mealTimingBadge}>
+                            <Text style={styles.mealTimingText}>{med.mealTiming}</Text>
+                        </View>
+                    ) : null}
+                    {/* Note */}
+                    {med.note ? (
+                        <View style={styles.noteRow}>
+                            <Ionicons name="create-outline" size={12} color="#9CA3AF" style={{ marginRight: 3, marginTop: 1 }} />
+                            <Text style={styles.noteText} numberOfLines={2}>
+                                {med.note}
+                            </Text>
+                        </View>
+                    ) : null}
                     {showCompletedTime && completedAtText && (
                         <Text style={styles.completedAtText}>{completedAtText}</Text>
                     )}
@@ -474,19 +489,20 @@ export const DoseSessionCard = ({
                                 <Text style={styles.timeSubHeaderText}>{time}</Text>
                             </View>
                             {timeGroups[time].map(med => {
-                                const isConfirmed = confirmedIds.includes(med.id);
+                                const sid = (med as any)._scheduleId || med.id;
+                                const isConfirmed = confirmedIds.includes(sid);
                                 return (
                                     <MedicineItemRow
                                         key={med.id}
-                                        med={med}
+                                        med={{...med, id: sid}}
                                         sessionKey={session.slotKey}
                                         isConfirmed={isConfirmed}
                                         dateState={dateState}
                                         isReadOnly={isReadOnly}
-                                        completedAt={completedAtMap[med.id]}
+                                        completedAt={completedAtMap[sid]}
                                         showCompletedTime={showCompletedTime}
-                                        onConfirm={() => handleConfirmOne(med.id)}
-                                        onUndo={() => onUndoItem(session.slotKey, med.id)}
+                                        onConfirm={() => handleConfirmOne(sid)}
+                                        onUndo={() => onUndoItem(session.slotKey, sid)}
                                     />
                                 );
                             })}
@@ -872,5 +888,31 @@ const styles = StyleSheet.create({
         fontSize: 12,
         fontWeight: '600',
         color: '#ef4444',
+    },
+    mealTimingBadge: {
+        backgroundColor: '#FFF7ED',
+        borderRadius: 6,
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        alignSelf: 'flex-start',
+        marginTop: 3,
+        borderWidth: 1,
+        borderColor: '#FDBA74',
+    },
+    mealTimingText: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#EA580C',
+    },
+    noteRow: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        marginTop: 2,
+    },
+    noteText: {
+        fontSize: 11,
+        color: '#9CA3AF',
+        fontStyle: 'italic',
+        marginTop: 2,
     },
 });

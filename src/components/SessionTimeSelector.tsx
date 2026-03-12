@@ -27,10 +27,11 @@ function getParentSession(key: string): string {
     return key.split('_sub_')[0];
 }
 
-/** Get all sub-time keys for a given session */
+/** Get all sub-time keys for a given session (case-insensitive parent match) */
 function getSubTimesForSession(sessionId: string, sessionTimes: Record<string, string>): string[] {
+    const lowerSessionId = sessionId.toLowerCase();
     return Object.keys(sessionTimes).filter(k =>
-        isSubTime(k) && getParentSession(k) === sessionId
+        isSubTime(k) && getParentSession(k).toLowerCase() === lowerSessionId
     );
 }
 
@@ -96,11 +97,8 @@ export default function SessionTimeSelector({
 
     // ─── Add sub-time to a session ───────────────────────────
     const addSubTime = (sessionId: string) => {
-        // Normalize session ID (capitalize first letter to match slot_key)
-        const sessionConfig = SESSIONS.find(s => s.id === sessionId);
-        const normalizedId = sessionConfig?.label || sessionId;
-
-        const subId = `${normalizedId}_sub_${Date.now()}`;
+        // Use sessionId (lowercase, e.g. "sáng") to match primary key casing
+        const subId = `${sessionId}_sub_${Date.now()}`;
         // Default sub-time: primary time + 2 hours
         const primaryTime = sessionTimes[sessionId] || SESSION_DEFAULTS[sessionId] || '08:00';
         const [h, m] = primaryTime.split(':').map(Number);

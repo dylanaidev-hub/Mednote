@@ -70,10 +70,13 @@ const VI_MON = ['Th.1', 'Th.2', 'Th.3', 'Th.4', 'Th.5', 'Th.6', 'Th.7', 'Th.8', 
 
 /** Convert DoseSessionRow[] from DB into MedicineEntry[] for groupIntoDoseSessions */
 function doseSessionRowsToMedicines(rows: DoseSessionRow[]): MedicineEntry[] {
+    // Sort rows by time ASC for consistent primary/sub-time assignment
+    const sortedRows = [...rows].sort((a, b) => a.time.localeCompare(b.time));
+
     // Group rows by medication_id to build MedicineEntry objects
     const medMap = new Map<string, MedicineEntry>();
 
-    rows.forEach(row => {
+    sortedRows.forEach(row => {
         if (!medMap.has(row.medication_id)) {
             medMap.set(row.medication_id, {
                 id: row.medication_id,
@@ -82,7 +85,8 @@ function doseSessionRowsToMedicines(rows: DoseSessionRow[]): MedicineEntry[] {
                 unit: row.unit || 'viên',
                 frequency: [],
                 sessionTimes: {},
-                note: '',
+                mealTiming: row.meal_timing || undefined,
+                note: row.note || '',
                 hasError: false,
                 source: (row.med_type === 'routine' ? 'routine' : 'prescription') as 'routine' | 'prescription',
                 prescriptionId: row.prescription_id || undefined,
@@ -90,10 +94,10 @@ function doseSessionRowsToMedicines(rows: DoseSessionRow[]): MedicineEntry[] {
         }
 
         const med = medMap.get(row.medication_id)!;
-        const slotKey = row.slot_key;
+        const slotKey = (row.slot_key || '').toLowerCase(); // normalize to lowercase
         if (slotKey) {
             if (!med.sessionTimes[slotKey]) {
-                // Primary time slot
+                // Primary time slot (earliest time for this session)
                 med.sessionTimes[slotKey] = row.time;
                 med.frequency.push(slotKey.toLowerCase());
             } else if (med.sessionTimes[slotKey] !== row.time) {
@@ -102,6 +106,7 @@ function doseSessionRowsToMedicines(rows: DoseSessionRow[]): MedicineEntry[] {
                 med.sessionTimes[subKey] = row.time;
                 med.frequency.push(subKey);
             }
+            // Skip exact duplicates (same slot_key AND same time)
         }
     });
 

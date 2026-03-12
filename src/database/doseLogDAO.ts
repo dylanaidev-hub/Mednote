@@ -6,7 +6,7 @@
 
 import { getDB } from './database';
 import { DoseStatus, DayProgress, StreakResult } from '../types/schema';
-import { formatLocalDate } from '../utils/dateUtils';
+import { formatLocalDate, parseSQLiteDate } from '../utils/dateUtils';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -76,15 +76,46 @@ export async function setMedicationDateStatus(
 export async function ensureDoseLogsForDate(medicationId: string, dateStr: string): Promise<void> {
     const db = await getDB();
 
-    const schedules = await db.getAllAsync<{ id: string }>(
-        `SELECT id FROM schedules WHERE medication_id = '${esc(medicationId)}'`
+    const schedules = await db.getAllAsync<{ id: string; time: string }>(
+        `SELECT id, time FROM schedules WHERE medication_id = '${esc(medicationId)}'`
     );
+
+    // Get medication's start_date + created_at for Day-1 super-guard
+    const med = await db.getFirstAsync<{ created_at: number; start_date: string }>(
+        `SELECT created_at, start_date FROM medications WHERE id = '${esc(medicationId)}'`
+    );
+
+    // ★ SUPER-GUARD: Use start_date as Day-1 anchor
+    const now = new Date();
+    const dayOneDateStr = med?.start_date || formatLocalDate(now);
+    const isDayOne = (dayOneDateStr === dateStr);
+    const isTodayRealTime = (dateStr === formatLocalDate(now));
+
+    // Safe parse created_at → createdMinutes (fallback to current time if null/invalid)
+    let createdMinutes = now.getHours() * 60 + now.getMinutes(); // default = now
+    if (med?.created_at) {
+        const safeCreatedAt = parseSQLiteDate(med.created_at);
+        if (!isNaN(safeCreatedAt.getTime())) {
+            createdMinutes = safeCreatedAt.getHours() * 60 + safeCreatedAt.getMinutes();
+        }
+    }
 
     const statements: string[] = [];
 
     for (const schedule of schedules) {
         const logId = `${schedule.id}_${dateStr}`;
-        // Use INSERT OR IGNORE to avoid needing to check first
+
+        // ★ Day-1 past-time guard: chặn dose_logs cho giờ đã qua trên ngày đầu tiên
+        if (isDayOne && isTodayRealTime) {
+            const scheduleMinutes = getMinutesSinceMidnight(schedule.time);
+            if (scheduleMinutes <= createdMinutes) {
+                // DELETE any existing bad dose_log + skip INSERT
+                statements.push(`DELETE FROM dose_logs WHERE id = '${esc(logId)}'`);
+                continue;
+            }
+        }
+
+        // ★ PHASE 2: Valid session → create PENDING dose_log
         statements.push(
             `INSERT OR IGNORE INTO dose_logs (id, schedule_id, medication_id, scheduled_date, status)
              VALUES ('${esc(logId)}', '${esc(schedule.id)}', '${esc(medicationId)}', '${esc(dateStr)}', 'PENDING')`
@@ -114,7 +145,7 @@ export async function getDoseLogSessionsForDate(dateStr: string): Promise<Set<st
     // Return a Set of "medId_slotKey" keys for fast lookup
     const keys = new Set<string>();
     rows.forEach(row => {
-        keys.add(`${row.medication_id}_${row.slot_key}`);
+        keys.add(`${row.medication_id}_${(row.slot_key || '').toLowerCase()}`);
     });
     return keys;
 }
@@ -191,25 +222,31 @@ export async function ensureAllDoseLogsForDate(dateStr: string): Promise<void> {
             }
         }
 
-        // Day-1 Logic: check if the target date is the exact creation date
-        const createdAtDateStr = formatLocalDate(new Date(med.created_at));
-        const isTargetCreationDay = createdAtDateStr === dateStr;
+        // ★ SUPER-GUARD: Use start_date as Day-1 anchor (not created_at alone)
+        const dayOneDateStr = med.start_date || formatLocalDate(now);
+        const isDayOne = (dayOneDateStr === dateStr);
+        const isTodayRealTime = (dateStr === todayDateOnly);
         const logId = `${schedule.id}_${dateStr}`;
 
-        if (isTargetCreationDay) {
+        if (isDayOne && isTodayRealTime) {
             const scheduleMinutes = getMinutesSinceMidnight(schedule.time);
 
-            // Compare against the exact time the medication was created, NOT the current time
-            const createdDateObj = new Date(med.created_at);
-            const createdMinutes = createdDateObj.getHours() * 60 + createdDateObj.getMinutes();
+            // Safe parse created_at → createdMinutes (fallback to current time if null/invalid)
+            let createdMinutes = now.getHours() * 60 + now.getMinutes();
+            if (med.created_at) {
+                const safeCreatedAt = parseSQLiteDate(med.created_at);
+                if (!isNaN(safeCreatedAt.getTime())) {
+                    createdMinutes = safeCreatedAt.getHours() * 60 + safeCreatedAt.getMinutes();
+                }
+            }
 
             if (scheduleMinutes <= createdMinutes) {
-                // ★ PHASE 1: Past session relative to creation time → DELETE any existing bad dose_log
+                // ★ PHASE 1: Past session → DELETE any existing bad dose_log
                 deleteStatements.push(
                     `DELETE FROM dose_logs WHERE id = '${esc(logId)}'`
                 );
                 console.log(`MedNote: Day-1 🗑 DELETE dose_log for [${schedule.slot_key}] ${schedule.time} (${scheduleMinutes}m <= ${createdMinutes}m created)`);
-                continue;
+                continue; // ⛔ SKIP PHASE 2 INSERT
             } else {
                 console.log(`MedNote: Day-1 ✅ KEEP [${schedule.slot_key}] ${schedule.time} (${scheduleMinutes}m > ${createdMinutes}m created)`);
             }
@@ -247,6 +284,8 @@ export interface DoseSessionRow {
     med_type: string;
     prescription_id: string | null;
     created_at: number;
+    meal_timing: string | null;
+    note: string | null;
 }
 
 /**
@@ -273,7 +312,9 @@ export async function getDoseSessionsForDate(dateStr: string): Promise<DoseSessi
             m.name as med_name,
             m.type as med_type,
             m.prescription_id,
-            m.created_at
+            m.created_at,
+            m.meal_timing,
+            m.note
          FROM dose_logs dl
          JOIN schedules s ON dl.schedule_id = s.id
          JOIN medications m ON dl.medication_id = m.id

@@ -39,12 +39,12 @@ export default function ManualAddScreen() {
 
     // ── Prescription-level state ──────────────────────────────────
     const [hospital, setHospital] = useState(editPrescription?.hospital || '');
-    const [date, setDate] = useState(
-        editPrescription ? new Date(editPrescription.date) : new Date()
+    const [date, setDate] = useState<Date | null>(
+        editPrescription ? new Date(editPrescription.date) : null
     );
     const [showDatePicker, setShowDatePicker] = useState(false);
     const [duration, setDuration] = useState(
-        editPrescription ? String(editPrescription.duration) : '7'
+        editPrescription ? String(editPrescription.duration) : ''
     );
 
     // ── Medicine list state (multi-med loop) ──────────────────────
@@ -56,7 +56,7 @@ export default function ManualAddScreen() {
     const units = ['Viên', 'Gói', 'Lọ', 'ml', 'ống'];
     const mealTimings = ['Trước ăn', 'Sau ăn', 'Khi đói', 'Tùy ý'];
 
-    const endDate = new Date(date);
+    const endDate = new Date(date || new Date());
     endDate.setDate(endDate.getDate() + (parseInt(duration) || 0));
 
     // ── Current med helpers ───────────────────────────────────────
@@ -74,7 +74,7 @@ export default function ManualAddScreen() {
 
     // ── Validate current med ──────────────────────────────────────
     const validateCurrentMed = (): boolean => {
-        if (!med.name.trim() || !med.quantity.trim() || med.frequency.length === 0 || !med.mealTiming) {
+        if (!med.name.trim() || !med.quantity.trim() || !med.mealTiming || !date || !duration.trim()) {
             setMedicines(prev => prev.map((m, i) =>
                 i === currentMedIndex ? { ...m, hasError: true } : m
             ));
@@ -122,7 +122,7 @@ export default function ManualAddScreen() {
                 const updated: Prescription = {
                     ...editPrescription,
                     hospital,
-                    date: formatLocalDate(date),
+                    date: formatLocalDate(date!),
                     duration: parseInt(duration) || 7,
                     medicines,
                 };
@@ -147,14 +147,14 @@ export default function ManualAddScreen() {
             // CREATE MODE: navigate to review
             navigation.navigate('ManualAddReview', {
                 hospital,
-                date: formatLocalDate(date),
+                date: formatLocalDate(date!),
                 duration: parseInt(duration) || 7,
                 medicines,
             });
         }
     };
 
-    const showError = med.hasError && (!med.name.trim() || !med.quantity.trim() || med.frequency.length === 0 || !med.mealTiming);
+    const showError = med.hasError && (!med.name.trim() || !med.quantity.trim() || !med.mealTiming || !date || !duration.trim());
 
     return (
         <View style={[s.root, { paddingTop: 18 }]}>
@@ -173,10 +173,12 @@ export default function ManualAddScreen() {
                 contentContainerStyle={s.scrollContent}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
+                extraScrollHeight={120}
+                enableOnAndroid
             >
 
                 {/* ─── SECTION 1: THÔNG TIN BỆNH ÁN ─────────────── */}
-                <Text style={s.sectionLabel}>Thông tin bệnh án</Text>
+                <Text style={s.sectionLabel}>Thông tin bệnh án <Text style={{ color: '#ef4444' }}>*</Text></Text>
 
                 {/* Nơi khám */}
                 <View style={[s.inputWrap, !hospital.trim() && showError && s.inputWrapError]}>
@@ -193,13 +195,13 @@ export default function ManualAddScreen() {
 
                 {/* Ngày khám — one-tap calendar modal */}
                 <TouchableOpacity
-                    style={s.inputWrap}
+                    style={[s.inputWrap, showError && !date && s.inputWrapError]}
                     onPress={() => { Keyboard.dismiss(); setShowDatePicker(true); }}
                     activeOpacity={0.7}
                 >
                     <MaterialCommunityIcons name="calendar-edit" size={18} color="#9ca3af" style={s.inputIcon} />
-                    <Text style={[s.inputText, { paddingVertical: 13, color: '#1f2937' }]}>
-                        {date.toLocaleDateString('vi-VN')}
+                    <Text style={[s.inputText, { paddingVertical: 13, color: date ? '#1f2937' : '#9ca3af' }]}>
+                        {date ? date.toLocaleDateString('vi-VN') : 'Chọn ngày bắt đầu'}
                     </Text>
                     <Ionicons name="chevron-down" size={16} color="#d1d5db" />
                 </TouchableOpacity>
@@ -207,7 +209,7 @@ export default function ManualAddScreen() {
                 <DateTimePickerModal
                     isVisible={showDatePicker}
                     mode="date"
-                    date={date}
+                    date={date || new Date()}
                     onConfirm={(selectedDate) => {
                         setShowDatePicker(false);
                         setDate(selectedDate);
@@ -225,7 +227,7 @@ export default function ManualAddScreen() {
                 />
 
                 {/* Số ngày uống — full width */}
-                <View style={s.inputWrap}>
+                <View style={[s.inputWrap, showError && !duration.trim() && s.inputWrapError]}>
                     <Ionicons name="time-outline" size={18} color="#9ca3af" style={s.inputIcon} />
                     <TextInput
                         style={s.inputText}
@@ -291,7 +293,7 @@ export default function ManualAddScreen() {
                 {/* ─── Section label with optional trash button ─── */}
                 <View style={s.sectionLabelRow}>
                     <Text style={[s.sectionLabel, s.sectionGap]}>
-                        Thông tin thuốc số {currentMedIndex + 1}
+                        Thông tin thuốc số {currentMedIndex + 1} <Text style={{ color: '#ef4444' }}>*</Text>
                     </Text>
                 </View>
 
@@ -313,7 +315,7 @@ export default function ManualAddScreen() {
                     <Ionicons name="calculator-outline" size={18} color="#9ca3af" style={s.inputIcon} />
                     <TextInput
                         style={s.inputText}
-                        placeholder="Liều lượng (VD: 1, 2.5)"
+                        placeholder="Liều lượng (VD: 1, 2)"
                         placeholderTextColor="#d1d5db"
                         keyboardType="numeric"
                         value={med.quantity}
@@ -349,7 +351,7 @@ export default function ManualAddScreen() {
                 />
 
                 {/* Cách uống so với bữa ăn */}
-                <Text style={[s.sectionLabel, s.sectionGap]}>Cách uống so với bữa ăn</Text>
+                <Text style={[s.sectionLabel, s.sectionGap]}>Cách uống so với bữa ăn <Text style={{ color: '#ef4444' }}>*</Text></Text>
                 <View style={[s.mealGrid, showError && !med.mealTiming && s.gridError]}>
                     {mealTimings.map(t => (
                         <TouchableOpacity
