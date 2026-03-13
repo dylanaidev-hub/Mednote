@@ -132,7 +132,7 @@ export default function Profile() {
         <View style={styles.root}>
             <ScrollView
                 style={{ flex: 1 }}
-                contentContainerStyle={{ paddingTop: insets.top + SP.lg, paddingBottom: insets.bottom + SP.xl }}
+                contentContainerStyle={{ paddingTop: insets.top + 16, paddingBottom: insets.bottom + SP.xl }}
                 showsVerticalScrollIndicator={false}
             >
                 {/* Page Title */}
@@ -273,13 +273,13 @@ export default function Profile() {
                         <SettingsItem
                             icon="shield-checkmark" iconColor="#64748b" iconBg="#f1f5f9"
                             label="Bảo mật & Điều khoản"
-                            isComingSoon={true}
+                            onPress={() => navigation.navigate('TermsAndPrivacy')}
                         />
                         <View style={styles.separator} />
                         <SettingsItem
                             icon="help-buoy" iconColor="#0ea5e9" iconBg="#e0f2fe"
-                            label="Đánh giá & Trợ giúp"
-                            isComingSoon={true}
+                            label="Trợ giúp & Góp ý"
+                            onPress={() => navigation.navigate('HelpAndSupport')}
                         />
                     </View>
                 </View>
@@ -433,7 +433,7 @@ const styles = StyleSheet.create({
     },
     pageTitle: {
         fontSize: 28,
-        fontWeight: '800',
+        fontWeight: '700',
         color: '#111827',
     },
 

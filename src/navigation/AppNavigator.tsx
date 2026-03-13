@@ -457,6 +457,16 @@ export default function AppNavigator() {
                     component={PrescriptionDetailScreen}
                     options={{ headerShown: false }}
                 />
+                <Stack.Screen
+                    name="TermsAndPrivacy"
+                    component={require('../screens/TermsAndPrivacyScreen').default}
+                    options={{ headerShown: false, presentation: 'card' }}
+                />
+                <Stack.Screen
+                    name="HelpAndSupport"
+                    component={require('../screens/HelpAndSupportScreen').default}
+                    options={{ headerShown: false, presentation: 'card' }}
+                />
             </Stack.Navigator>
 
             <GlobalToast bottomOffset={bottomOffset} />

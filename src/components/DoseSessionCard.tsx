@@ -260,24 +260,25 @@ const MedicineItemRow: React.FC<MedicineItemRowProps> = ({ med, sessionKey, isCo
                     )}
                 </View>
                 <View style={styles.medInfo}>
+                    {/* Row 1: Medicine name */}
                     <Text style={styles.medName} numberOfLines={1}>
                         {med.name}
                     </Text>
+                    {/* Row 2: Dosage + Meal timing badge inline */}
                     <View style={styles.medMetaRow}>
                         <Text style={styles.medDose} numberOfLines={1}>
                             {med.dosage || `${med.quantity} ${med.unit}`}
                         </Text>
+                        {med.mealTiming ? (
+                            <View style={styles.mealTimingBadge}>
+                                <Text style={styles.mealTimingText}>{med.mealTiming}</Text>
+                            </View>
+                        ) : null}
                     </View>
-                    {/* Meal Timing Badge */}
-                    {med.mealTiming ? (
-                        <View style={styles.mealTimingBadge}>
-                            <Text style={styles.mealTimingText}>{med.mealTiming}</Text>
-                        </View>
-                    ) : null}
-                    {/* Note */}
+                    {/* Row 3: Note */}
                     {med.note ? (
                         <View style={styles.noteRow}>
-                            <Ionicons name="create-outline" size={12} color="#9CA3AF" style={{ marginRight: 3, marginTop: 1 }} />
+                            <Ionicons name="create-outline" size={12} color="#9CA3AF" style={{ marginRight: 3, marginTop: 2 }} />
                             <Text style={styles.noteText} numberOfLines={2}>
                                 {med.note}
                             </Text>
@@ -711,10 +712,16 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: '#1f2937',
     },
+    medMetaRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 4,
+        gap: 8,
+        flexWrap: 'wrap',
+    },
     medDose: {
         fontSize: 13,
         color: '#6b7280',
-        marginTop: 2,
     },
     // Action button ('Uống X viên')
     actionBtn: {
@@ -841,11 +848,6 @@ const styles = StyleSheet.create({
         color: '#6b7280',
         marginTop: 2,
     },
-    medMetaRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginTop: 2,
-    },
     timeBadgeSmall: {
         backgroundColor: '#f3f4f6',
         paddingHorizontal: 6,
@@ -903,8 +905,6 @@ const styles = StyleSheet.create({
         borderRadius: 6,
         paddingHorizontal: 8,
         paddingVertical: 2,
-        alignSelf: 'flex-start',
-        marginTop: 3,
         borderWidth: 1,
         borderColor: '#FDBA74',
     },
@@ -916,12 +916,14 @@ const styles = StyleSheet.create({
     noteRow: {
         flexDirection: 'row',
         alignItems: 'flex-start',
-        marginTop: 2,
+        marginTop: 4,
     },
     noteText: {
-        fontSize: 11,
+        flex: 1,
+        flexShrink: 1,
+        fontSize: 12,
         color: '#9CA3AF',
         fontStyle: 'italic',
-        marginTop: 2,
+        lineHeight: 17,
     },
 });

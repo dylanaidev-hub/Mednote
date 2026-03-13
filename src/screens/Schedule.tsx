@@ -458,7 +458,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
         paddingHorizontal: SP.lg, paddingTop: SP.sm, paddingBottom: 4,
     },
-    headerTitle: { fontSize: 22, fontWeight: '800', color: '#111827' },
+    headerTitle: { fontSize: 28, fontWeight: '700', color: '#111827' },
     todayBtn: {
         backgroundColor: '#eff6ff', paddingHorizontal: 14, paddingVertical: 7,
         borderRadius: 20, borderWidth: 1, borderColor: '#bfdbfe',
