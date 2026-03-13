@@ -31,74 +31,104 @@ export async function getDB(): Promise<SQLite.SQLiteDatabase> {
     return _dbPromise;
 }
 
+// Current schema version — bump this when adding new migrations
+const DB_VERSION = 2;
+
 /**
- * Initialize the database: create tables and indexes.
- * Uses execAsync for DDL (no parameters needed).
+ * Initialize the database with versioned migrations.
+ * Uses PRAGMA user_version to track schema version.
+ * Migrations run sequentially: v0→v1→v2→...
  */
 export async function initDB(): Promise<void> {
     const db = await getDB();
 
     await db.execAsync(`PRAGMA journal_mode = WAL`);
 
-    await db.execAsync(`
-        CREATE TABLE IF NOT EXISTS medications (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            type TEXT DEFAULT 'prescription',
-            created_at INTEGER NOT NULL,
-            prescription_id TEXT,
-            hospital TEXT,
-            duration INTEGER DEFAULT 0,
-            start_date TEXT,
-            images TEXT,
-            note TEXT,
-            weekdays TEXT,
-            meal_timing TEXT
-        )
-    `);
+    // ── Read current schema version ──────────────────────────
+    const result = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+    let currentVersion = result?.user_version || 0;
 
-    await db.execAsync(`
-        CREATE TABLE IF NOT EXISTS schedules (
-            id TEXT PRIMARY KEY,
-            medication_id TEXT NOT NULL,
-            time TEXT NOT NULL,
-            dose INTEGER DEFAULT 1,
-            slot_key TEXT,
-            unit TEXT
-        )
-    `);
+    console.log(`MedNote DB: current version = ${currentVersion}, target = ${DB_VERSION}`);
 
-    await db.execAsync(`
-        CREATE TABLE IF NOT EXISTS dose_logs (
-            id TEXT PRIMARY KEY,
-            schedule_id TEXT NOT NULL,
-            medication_id TEXT NOT NULL,
-            scheduled_date TEXT NOT NULL,
-            status TEXT DEFAULT 'PENDING',
-            completed_at INTEGER
-        )
-    `);
+    // ── Migration v0 → v1: Initial schema ────────────────────
+    if (currentVersion < 1) {
+        console.log('MedNote DB: Running migration v0 → v1 (initial schema)');
 
-    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_dose_logs_date ON dose_logs(scheduled_date)`);
-    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_dose_logs_med_date ON dose_logs(medication_id, scheduled_date)`);
-    await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_schedules_med ON schedules(medication_id)`);
+        await db.execAsync(`
+            CREATE TABLE IF NOT EXISTS medications (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                type TEXT DEFAULT 'prescription',
+                created_at INTEGER NOT NULL,
+                prescription_id TEXT,
+                hospital TEXT,
+                duration INTEGER DEFAULT 0,
+                start_date TEXT,
+                images TEXT,
+                note TEXT
+            )
+        `);
 
-    // ── Safe migration: add weekdays column if missing ──
-    try {
-        await db.execAsync(`ALTER TABLE medications ADD COLUMN weekdays TEXT`);
-    } catch {
-        // Column already exists, ignore
+        await db.execAsync(`
+            CREATE TABLE IF NOT EXISTS schedules (
+                id TEXT PRIMARY KEY,
+                medication_id TEXT NOT NULL,
+                time TEXT NOT NULL,
+                dose INTEGER DEFAULT 1,
+                slot_key TEXT,
+                unit TEXT
+            )
+        `);
+
+        await db.execAsync(`
+            CREATE TABLE IF NOT EXISTS dose_logs (
+                id TEXT PRIMARY KEY,
+                schedule_id TEXT NOT NULL,
+                medication_id TEXT NOT NULL,
+                scheduled_date TEXT NOT NULL,
+                status TEXT DEFAULT 'PENDING',
+                completed_at INTEGER
+            )
+        `);
+
+        await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_dose_logs_date ON dose_logs(scheduled_date)`);
+        await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_dose_logs_med_date ON dose_logs(medication_id, scheduled_date)`);
+        await db.execAsync(`CREATE INDEX IF NOT EXISTS idx_schedules_med ON schedules(medication_id)`);
+
+        currentVersion = 1;
     }
 
-    // ── Safe migration: add meal_timing column if missing ──
-    try {
-        await db.execAsync(`ALTER TABLE medications ADD COLUMN meal_timing TEXT`);
-    } catch {
-        // Column already exists, ignore
+    // ── Migration v1 → v2: Add weekdays + meal_timing columns ─
+    if (currentVersion < 2) {
+        console.log('MedNote DB: Running migration v1 → v2 (weekdays + meal_timing)');
+
+        try {
+            await db.execAsync(`ALTER TABLE medications ADD COLUMN weekdays TEXT`);
+        } catch {
+            // Column already exists — safe to ignore
+        }
+
+        try {
+            await db.execAsync(`ALTER TABLE medications ADD COLUMN meal_timing TEXT`);
+        } catch {
+            // Column already exists — safe to ignore
+        }
+
+        currentVersion = 2;
     }
+
+    // ── Future migrations go here ────────────────────────────
+    // if (currentVersion < 3) {
+    //     console.log('MedNote DB: Running migration v2 → v3 (description)');
+    //     await db.execAsync(`ALTER TABLE ...`);
+    //     currentVersion = 3;
+    // }
+
+    // ── Persist final version ────────────────────────────────
+    await db.execAsync(`PRAGMA user_version = ${DB_VERSION}`);
+    console.log(`MedNote DB: schema up to date (v${DB_VERSION})`);
 
     // ── Data cleanup: fix any bad slot_key containing '_sub_' ──
-    // Sub-time schedules should have clean slot_key (e.g. 'Sáng', not 'Sáng_sub_xxx')
     const badRows = await db.getAllAsync<{ id: string; slot_key: string }>(
         `SELECT id, slot_key FROM schedules WHERE slot_key LIKE '%_sub_%'`
     );
@@ -108,7 +138,7 @@ export async function initDB(): Promise<void> {
             return `UPDATE schedules SET slot_key = '${cleanKey}' WHERE id = '${row.id}'`;
         });
         await db.execAsync(fixes.join(';\n') + ';');
-        console.log(`MedNote: Cleaned ${badRows.length} bad slot_key records`);
+        console.log(`MedNote DB: Cleaned ${badRows.length} bad slot_key records`);
     }
 }
 

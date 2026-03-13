@@ -341,7 +341,18 @@ export async function getAllPrescriptions(): Promise<PrescriptionRecord[]> {
                         frequency.push(slotKey);
                     } else if (sessionTimes[slotKey] !== s.time) {
                         // Sub-time: same slot_key, different time
-                        const subKey = `${slotKey}_sub_${s.id}`;
+                        // Extract ONLY the unique suffix from schedule.id
+                        // schedule.id format: "medId_slot_sub_SUFFIX" → we need "SUFFIX"
+                        // Or if no _sub_, use full s.id as fallback
+                        let subSuffix: string;
+                        if (s.id.includes('_sub_')) {
+                            // Get everything after the LAST _sub_ (the unique timestamp)
+                            const parts = s.id.split('_sub_');
+                            subSuffix = parts[parts.length - 1];
+                        } else {
+                            subSuffix = String(Date.now()) + Math.random().toString(36).slice(2, 6);
+                        }
+                        const subKey = `${slotKey}_sub_${subSuffix}`;
                         sessionTimes[subKey] = s.time;
                         frequency.push(subKey);
                     }

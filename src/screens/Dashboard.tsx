@@ -28,7 +28,7 @@ import {
 } from '../database/doseLogDAO';
 
 export default function Dashboard() {
-    const { records, confirmedMedsToday, completedAtMap, updateConfirmedMed, clearConfirmedMeds } = useMedContext();
+    const { records, confirmedMedsToday, completedAtMap, updateConfirmedMed, clearConfirmedMeds, isLoading } = useMedContext();
     const navigation = useNavigation<any>();
 
     const [weather, setWeather] = useState<WeatherData | null>(null);
@@ -48,7 +48,9 @@ export default function Dashboard() {
     const [todayDoseRows, setTodayDoseRows] = useState<DoseSessionRow[]>([]);
 
     // Fetch dose_logs on mount + whenever records or confirmedMedsToday changes
+    // Guard: wait for MedContext to finish initDB() before querying
     useEffect(() => {
+        if (isLoading) return;
         const loadTodayDoses = async () => {
             const todayStr = formatLocalDate(new Date());
             await sqlEnsureAllTodayDoseLogs(todayStr);
@@ -56,7 +58,7 @@ export default function Dashboard() {
             setTodayDoseRows(rows);
         };
         loadTodayDoses();
-    }, [records, confirmedMedsToday]);
+    }, [records, confirmedMedsToday, isLoading]);
 
     // ─── Convert flat rows to MedicineEntry[] + DoseSession[] ─
     const doseSessions = useMemo(() => {
