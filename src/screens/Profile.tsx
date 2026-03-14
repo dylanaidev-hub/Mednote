@@ -12,6 +12,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useUser } from '../context/UserContext';
 import { useMedContext } from '../context/MedContext';
 import PrimaryButton from '../components/PrimaryButton';
+import { BatteryOptimization } from '../services/BatteryOptimization';
 
 
 const SP = { xs: 4, sm: 8, md: 16, lg: 24, xl: 32 };
@@ -247,6 +248,22 @@ export default function Profile() {
                         <Text style={{ fontSize: 12, color: '#9ca3af', paddingHorizontal: 16, paddingBottom: 12, marginTop: -4, lineHeight: 17 }}>
                             Gửi thêm 3 thông báo nhắc nhở (sau 5, 15, 30 phút) nếu bạn chưa uống thuốc.
                         </Text>
+                        {Platform.OS === 'android' && (
+                            <>
+                                <View style={styles.separator} />
+                                <SettingsItem
+                                    icon="battery-half" iconColor="#22c55e" iconBg="#f0fdf4"
+                                    label="Tối ưu pin (Quan trọng)"
+                                    onPress={async () => {
+                                        await BatteryOptimization.requestIgnore();
+                                        showToast({ message: 'Hãy chọn "Không hạn chế" để nhận thông báo ổn định', duration: 3000 });
+                                    }}
+                                />
+                                <Text style={{ fontSize: 12, color: '#9ca3af', paddingHorizontal: 16, paddingBottom: 12, marginTop: -4, lineHeight: 17 }}>
+                                    Tắt tối ưu pin cho MedNote để đảm bảo thông báo nhắc thuốc không bị chặn.
+                                </Text>
+                            </>
+                        )}
                     </View>
                 </View>
 

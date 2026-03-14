@@ -230,7 +230,7 @@ export const NotificationService = {
             // ───────────────────────────────────────────────────────────
 
             const now = new Date();
-            const daysToSchedule = 3;
+            const daysToSchedule = 7; // 7-day rolling window
             let totalScheduled = 0;
 
             for (let i = 0; i < daysToSchedule; i++) {
@@ -252,7 +252,7 @@ export const NotificationService = {
                     startDate.setHours(0, 0, 0, 0);
 
                     const endDate = new Date(startDate);
-                    endDate.setDate(endDate.getDate() + prescription.duration - 1);
+                    endDate.setDate(endDate.getDate() + (prescription.duration || 1) - 1);
                     endDate.setHours(23, 59, 59, 999);
 
                     const currentDay = new Date(targetDate);
@@ -396,6 +396,32 @@ export const NotificationService = {
             }
         } catch (error) {
             console.error('MedNote: Error cancelling notifications:', error);
+        }
+    },
+
+    /**
+     * Refill notifications if the queue is running low.
+     * Checks how many are still pending; if below threshold, reschedules all.
+     */
+    async refillIfNeeded(
+        records: Prescription[],
+        enabled: boolean,
+        naggingMode: boolean = false,
+        medicationLogs: Record<string, Record<string, 'taken' | 'missed'>> = {},
+        confirmedMedsToday: Record<string, string[]> = {}
+    ) {
+        try {
+            const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+            const pendingCount = scheduled.length;
+            console.log(`MedNote: Refill check — ${pendingCount} notifications pending`);
+
+            // Refill if fewer than 20 notifications remain
+            if (pendingCount < 20) {
+                console.log('MedNote: Below threshold, refilling notifications...');
+                await this.scheduleAll(records, enabled, naggingMode, medicationLogs, confirmedMedsToday);
+            }
+        } catch (e) {
+            console.error('MedNote: Refill check failed:', e);
         }
     },
 };

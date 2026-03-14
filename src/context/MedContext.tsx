@@ -5,10 +5,12 @@
  */
 
 import React, { createContext, useState, useContext, ReactNode, useEffect, useMemo, useCallback, useRef } from 'react';
+import { AppState, AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { MedicineEntry } from '../types/medicine';
 import { NotificationService } from '../services/notificationService';
+import { registerBackgroundNotificationTask } from '../tasks/backgroundNotificationTask';
 import { initDB } from '../database/database';
 import { migrateFromAsyncStorage } from '../database/migration';
 import {
@@ -239,6 +241,9 @@ export const MedProvider = ({ children }: { children: ReactNode }) => {
                 // Boot cleanup
                 await NotificationService.cancelAll();
                 await NotificationService.init();
+
+                // Register background notification refill task
+                await registerBackgroundNotificationTask();
             } catch (e) {
                 console.error('Failed to initialize MedContext:', e);
             } finally {
@@ -248,6 +253,38 @@ export const MedProvider = ({ children }: { children: ReactNode }) => {
 
         initialize();
     }, []);
+
+    // ─── AppState Refill: Reschedule when app comes to foreground ──
+    useEffect(() => {
+        if (isLoading) return;
+
+        const appStateRef = { current: AppState.currentState };
+
+        const handleAppStateChange = async (nextState: AppStateStatus) => {
+            if (appStateRef.current.match(/inactive|background/) && nextState === 'active') {
+                console.log('MedNote: App foregrounded — checking notification refill');
+                try {
+                    const freshRecords = await sqlGetAllPrescriptions();
+                    const freshLogs = await sqlGetMedicationLogsLegacy();
+                    const todayStr = formatLocalDate(new Date());
+                    const freshConfirmed = await sqlGetConfirmedMedsForDate(todayStr);
+                    await NotificationService.refillIfNeeded(
+                        freshRecords.map(r => ({ ...r, createdAt: r.createdAt || new Date().toISOString() })),
+                        notificationsEnabled,
+                        naggingMode,
+                        freshLogs,
+                        freshConfirmed
+                    );
+                } catch (e) {
+                    console.warn('MedNote: Foreground refill failed:', e);
+                }
+            }
+            appStateRef.current = nextState;
+        };
+
+        const sub = AppState.addEventListener('change', handleAppStateChange);
+        return () => sub.remove();
+    }, [isLoading, notificationsEnabled, naggingMode]);
 
     // ─── Notification Scheduling ─────────────────────────────
     // Only reschedule when prescriptions change or notification settings toggle.

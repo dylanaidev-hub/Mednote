@@ -21,7 +21,13 @@
         "foregroundImage": "./assets/android-icon-foreground.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.MedNote"
+      "package": "com.anonymous.MedNote",
+      "permissions": [
+        "RECEIVE_BOOT_COMPLETED",
+        "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+        "SCHEDULE_EXACT_ALARM",
+        "WAKE_LOCK"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -34,7 +40,9 @@
           "color": "#3b82f6"
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-task-manager",
+      "expo-background-fetch"
     ],
     "extra": {
       "eas": {
