@@ -286,7 +286,7 @@ export default function Profile() {
 
                 {/* App version footer */}
                 <View style={styles.versionFooter}>
-                    <Text style={styles.versionText}>MedNote v2.1.0</Text>
+                    <Text style={styles.versionText}>MedNote v2.2.0</Text>
                 </View>
             </ScrollView>
 

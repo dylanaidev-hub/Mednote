@@ -254,13 +254,11 @@ export async function archivePrescription(prescriptionId: string): Promise<void>
     const statements: string[] = [];
 
     for (const med of meds) {
-        // Calculate new duration: days from start_date to today (inclusive)
-        const startDate = new Date(med.start_date + 'T00:00:00');
-        const today = new Date(todayStr + 'T00:00:00');
-        const diffMs = today.getTime() - startDate.getTime();
-        const newDuration = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+        // Set duration = 0 as definitive "STOPPED" flag
+        // All UI components check duration === 0 first → "Đã dừng"
+        const newDuration = 0;
 
-        // Step 1: Shrink duration to end today
+        // Step 1: Shrink duration to end yesterday
         statements.push(
             `UPDATE medications SET duration = ${newDuration} WHERE id = '${esc(med.id)}'`
         );

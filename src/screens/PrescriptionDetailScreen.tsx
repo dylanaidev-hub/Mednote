@@ -46,9 +46,10 @@ export default function PrescriptionDetailScreen() {
 
     const startDate = new Date(prescription.date + 'T00:00:00'); // local midnight
     const endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + prescription.duration);
+    endDate.setDate(startDate.getDate() + (prescription.duration || 1) - 1);
     endDate.setHours(23, 59, 59, 999);
-    const isActive = now >= startDate && now <= endDate;
+    // duration === 0 is definitive "STOPPED" flag from archive
+    const isActive = prescription.duration !== 0 && now >= startDate && now <= endDate;
 
     const isRoutine = prescription.hospital?.toLowerCase().includes('định kỳ') || false;
     const medicineNames = prescription.medicines.map(m => m.name).filter(Boolean);

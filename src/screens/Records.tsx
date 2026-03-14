@@ -26,6 +26,7 @@ type RecordStatus = 'active' | 'completed';
 type RecordType = 'routine' | 'prescription';
 
 function checkRecordStatus(record: { date: string; duration: number }): RecordStatus {
+    if (record.duration === 0) return 'completed'; // Stopped via archive
     const startDate = new Date(record.date + 'T00:00:00');
     startDate.setHours(0, 0, 0, 0);
     const endDate = new Date(startDate);

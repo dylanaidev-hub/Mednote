@@ -29,11 +29,13 @@ export const PrescriptionCard = ({ prescription, onDelete, onPress }: Prescripti
 
     const startDate = new Date(prescription.date + 'T00:00:00'); // local midnight
     const endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + prescription.duration);
+    endDate.setDate(startDate.getDate() + (prescription.duration || 1) - 1);
     endDate.setHours(23, 59, 59, 999);
 
     const now = new Date();
-    const isActive = now >= startDate && now <= endDate;
+    // Priority: duration === 0 is definitive "STOPPED" flag from archive
+    const isStopped = prescription.duration === 0 || now > endDate;
+    const isActive = !isStopped && now >= startDate && now <= endDate;
 
     const isRoutine = prescription.hospital?.toLowerCase().includes('định kỳ') || false;
     const medicineNames = prescription.medicines.map(m => m.name).filter(Boolean);
@@ -43,15 +45,17 @@ export const PrescriptionCard = ({ prescription, onDelete, onPress }: Prescripti
     const subtitle = isRoutine
         ? `${startDate.toLocaleDateString('vi-VN')} • Uống mỗi ngày`
         : `${startDate.toLocaleDateString('vi-VN')}${prescription.duration > 0 ? ` • ${prescription.duration} ngày` : ''}`;
-    const statusLabel = isRoutine ? 'Thuốc bổ' : (isActive ? 'Đang uống' : 'Hết hạn');
+
+    // Priority badge: Stopped > Routine > Active
+    const statusLabel = isStopped ? 'Đã dừng' : (isRoutine ? 'Thuốc bổ' : 'Đang uống');
 
     // --- Unified Primary Blue for all card icons (synced with Action Sheet) ---
     const TagIcon = isRoutine ? 'leaf' : 'clipboard-plus';
-    const iconColor = isActive || isRoutine ? '#1D4ED8' : '#9ca3af';
-    const iconBg = isActive || isRoutine ? '#DBEAFE' : '#f3f4f6';
+    const iconColor = isStopped ? '#9ca3af' : '#1D4ED8';
+    const iconBg = isStopped ? '#f3f4f6' : '#DBEAFE';
 
-    const tagBg = isActive || isRoutine ? 'bg-blue-50' : 'bg-gray-100';
-    const tagText = isActive || isRoutine ? 'text-blue-600' : 'text-gray-500';
+    const tagBg = isStopped ? 'bg-gray-100' : 'bg-blue-50';
+    const tagText = isStopped ? 'text-gray-500' : 'text-blue-600';
 
     return (
         <Swipeable renderRightActions={renderRightActions} friction={2}>
