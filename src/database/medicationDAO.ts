@@ -17,6 +17,7 @@ export interface MedicationRow {
     created_at: number;
     prescription_id: string | null;
     hospital: string | null;
+    record_title: string | null;
     duration: number;
     start_date: string | null;
     images: string | null;
@@ -36,6 +37,7 @@ export interface ScheduleRow {
 
 export interface PrescriptionRecord {
     id: string;
+    recordTitle?: string;
     hospital: string;
     date: string;
     duration: number;
@@ -85,9 +87,10 @@ export async function insertPrescription(prescription: PrescriptionRecord): Prom
     for (const med of prescription.medicines) {
         const weekdaysJson = med.weekdays ? JSON.stringify(med.weekdays) : null;
         const weekdaysSql = weekdaysJson ? `'${esc(weekdaysJson)}'` : 'NULL';
+        const recordTitleSql = prescription.recordTitle ? `'${esc(prescription.recordTitle)}'` : 'NULL';
         statements.push(
-            `INSERT OR REPLACE INTO medications (id, name, type, created_at, prescription_id, hospital, duration, start_date, images, note, weekdays, meal_timing)
-             VALUES ('${esc(med.id)}', '${esc(med.name)}', '${type}', ${createdAtTs}, '${esc(prescription.id)}', '${esc(prescription.hospital)}', ${prescription.duration}, '${esc(prescription.date)}', '${esc(imagesJson)}', '${esc(med.note || '')}', ${weekdaysSql}, '${esc(med.mealTiming || '')}')`
+            `INSERT OR REPLACE INTO medications (id, name, type, created_at, prescription_id, hospital, record_title, duration, start_date, images, note, weekdays, meal_timing)
+             VALUES ('${esc(med.id)}', '${esc(med.name)}', '${type}', ${createdAtTs}, '${esc(prescription.id)}', '${esc(prescription.hospital)}', ${recordTitleSql}, ${prescription.duration}, '${esc(prescription.date)}', '${esc(imagesJson)}', '${esc(med.note || '')}', ${weekdaysSql}, '${esc(med.mealTiming || '')}')`
         );
 
         const sessionTimes = med.sessionTimes || {};
@@ -163,6 +166,8 @@ export async function updatePrescription(prescription: PrescriptionRecord): Prom
         const weekdaysJson = med.weekdays ? JSON.stringify(med.weekdays) : null;
         const weekdaysSql = weekdaysJson ? `'${esc(weekdaysJson)}'` : 'NULL';
 
+        const recordTitleSql = prescription.recordTitle ? `'${esc(prescription.recordTitle)}'` : 'NULL';
+
         // Step 1: UPDATE medication row
         statements.push(
             `UPDATE medications SET
@@ -170,6 +175,7 @@ export async function updatePrescription(prescription: PrescriptionRecord): Prom
                 type = '${type}',
                 duration = ${prescription.duration},
                 hospital = '${esc(prescription.hospital)}',
+                record_title = ${recordTitleSql},
                 images = '${esc(imagesJson)}',
                 note = '${esc(med.note || '')}',
                 weekdays = ${weekdaysSql},
@@ -391,6 +397,7 @@ export async function getAllPrescriptions(): Promise<PrescriptionRecord[]> {
 
         prescriptions.push({
             id: prescriptionId,
+            recordTitle: first.record_title || undefined,
             hospital: first.hospital || '',
             date: first.start_date || parseSQLiteDate(first.created_at).toISOString(),
             duration: first.duration,

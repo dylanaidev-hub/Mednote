@@ -226,15 +226,15 @@ export function getMotivationalText(compliance: number): string {
  * Offset 0 = current week, -1 = last week, +1 = next week.
  */
 export function getWeekDays(offset: number = 0, referenceDate?: Date): Date[] {
-    const start = new Date(referenceDate || new Date());
-    const day = start.getDay();
-    const diff = (day === 0 ? -6 : 1) - day; // Adjust to Monday
-    start.setDate(start.getDate() + diff + (offset * 7));
-    start.setHours(0, 0, 0, 0);
+    const ref = referenceDate ? new Date(referenceDate) : new Date();
+    ref.setHours(0, 0, 0, 0);
 
-    return Array.from({ length: 7 }, (_, i) => {
-        const d = new Date(start);
-        d.setDate(d.getDate() + i);
-        return d;
-    });
+    // Calculate Monday of the reference week using millisecond math (no mutation)
+    const day = ref.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+    const diffToMonday = day === 0 ? -6 : 1 - day; // Days to go back to reach Monday
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const mondayMs = ref.getTime() + (diffToMonday + offset * 7) * DAY_MS;
+
+    // Generate 7 fresh Date objects from Monday
+    return Array.from({ length: 7 }, (_, i) => new Date(mondayMs + i * DAY_MS));
 }

@@ -39,6 +39,7 @@ export default function ManualAddScreen() {
 
     // ── Prescription-level state ──────────────────────────────────
     const [hospital, setHospital] = useState(editPrescription?.hospital || '');
+    const [recordTitle, setRecordTitle] = useState(editPrescription?.recordTitle || '');
     const [date, setDate] = useState<Date | null>(
         editPrescription ? new Date(editPrescription.date) : null
     );
@@ -74,7 +75,7 @@ export default function ManualAddScreen() {
 
     // ── Validate current med ──────────────────────────────────────
     const validateCurrentMed = (): boolean => {
-        if (!med.name.trim() || !med.quantity.trim() || !med.mealTiming || !date || !duration.trim()) {
+        if (!med.name.trim() || !med.quantity.trim() || !med.mealTiming || !date || !duration.trim() || !recordTitle.trim()) {
             setMedicines(prev => prev.map((m, i) =>
                 i === currentMedIndex ? { ...m, hasError: true } : m
             ));
@@ -108,8 +109,8 @@ export default function ManualAddScreen() {
         Keyboard.dismiss();
         if (!validateCurrentMed()) return;
 
-        if (!hospital.trim()) {
-            Alert.alert('Thiếu thông tin', 'Vui lòng nhập tên nơi khám / bệnh viện.');
+            if (!hospital.trim() || !recordTitle.trim()) {
+                Alert.alert('Thiếu thông tin', 'Vui lòng nhập tên bệnh án và nơi khám.');
             return;
         }
 
@@ -121,6 +122,7 @@ export default function ManualAddScreen() {
             try {
                 const updated: Prescription = {
                     ...editPrescription,
+                    recordTitle,
                     hospital,
                     date: formatLocalDate(date!),
                     duration: parseInt(duration) || 7,
@@ -146,6 +148,7 @@ export default function ManualAddScreen() {
         } else {
             // CREATE MODE: navigate to review
             navigation.navigate('ManualAddReview', {
+                recordTitle,
                 hospital,
                 date: formatLocalDate(date!),
                 duration: parseInt(duration) || 7,
@@ -154,7 +157,7 @@ export default function ManualAddScreen() {
         }
     };
 
-    const showError = med.hasError && (!med.name.trim() || !med.quantity.trim() || !med.mealTiming || !date || !duration.trim());
+    const showError = med.hasError && (!med.name.trim() || !med.quantity.trim() || !med.mealTiming || !date || !duration.trim() || !recordTitle.trim());
 
     return (
         <View style={[s.root, { paddingTop: 18 }]}>
@@ -180,6 +183,19 @@ export default function ManualAddScreen() {
                 {/* ─── SECTION 1: THÔNG TIN BỆNH ÁN ─────────────── */}
                 <Text style={s.sectionLabel}>Thông tin bệnh án <Text style={{ color: '#ef4444' }}>*</Text></Text>
 
+                {/* Tên bệnh án */}
+                <View style={[s.inputWrap, !recordTitle.trim() && showError && s.inputWrapError]}>
+                    <MaterialCommunityIcons name="clipboard-text-outline" size={18} color="#9ca3af" style={s.inputIcon} />
+                    <TextInput
+                        style={s.inputText}
+                        placeholder="Tên bệnh án / Chẩn đoán (VD: Viêm họng)"
+                        placeholderTextColor="#d1d5db"
+                        value={recordTitle}
+                        onChangeText={setRecordTitle}
+                        returnKeyType="next"
+                    />
+                </View>
+
                 {/* Nơi khám */}
                 <View style={[s.inputWrap, !hospital.trim() && showError && s.inputWrapError]}>
                     <MaterialCommunityIcons name="office-building-outline" size={18} color="#9ca3af" style={s.inputIcon} />
@@ -193,7 +209,7 @@ export default function ManualAddScreen() {
                     />
                 </View>
 
-                {/* Ngày khám — one-tap calendar modal */}
+                {/* Ngày bắt đầu uống — one-tap calendar modal */}
                 <TouchableOpacity
                     style={[s.inputWrap, showError && !date && s.inputWrapError]}
                     onPress={() => { Keyboard.dismiss(); setShowDatePicker(true); }}
@@ -218,10 +234,9 @@ export default function ManualAddScreen() {
                     confirmTextIOS="Xong"
                     cancelTextIOS="Hủy"
                     locale="vi-VN"
-                    maximumDate={new Date()}
                     customHeaderIOS={() => (
                         <View style={{ padding: 16, alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#f3f4f6' }}>
-                            <Text style={{ fontSize: 16, fontWeight: '700', color: '#1f2937' }}>Chọn ngày khám</Text>
+                            <Text style={{ fontSize: 16, fontWeight: '700', color: '#1f2937' }}>Chọn ngày bắt đầu</Text>
                         </View>
                     )}
                 />
@@ -397,14 +412,14 @@ export default function ManualAddScreen() {
                 {/* Secondary: Save current med + add another */}
                 <PrimaryButton
                     variant="outline"
-                    title="Lưu & Thêm thuốc khác"
+                    title="Thêm thuốc khác"
                     icon="add-circle-outline"
                     onPress={handleSaveAndAddMore}
                 />
 
                 {/* Primary: Submit all */}
                 <PrimaryButton
-                    title={isSaving ? 'Đang lưu...' : editMode ? 'Lưu thay đổi' : 'Xác nhận đơn thuốc'}
+                    title={isSaving ? 'Đang lưu...' : editMode ? 'Lưu thay đổi' : 'Kiểm tra lại'}
                     icon="checkmark-circle-outline"
                     onPress={handleSubmit}
                     loading={isSaving}

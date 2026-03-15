@@ -3,6 +3,8 @@ import { View, Text, TouchableOpacity } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Swipeable } from 'react-native-gesture-handler';
 import { Prescription } from '../context/MedContext';
+import { getPrescriptionStatus, formatFrequency } from '../utils/dateUtils';
+import Badge from './Badge';
 import * as Haptics from 'expo-haptics';
 
 interface PrescriptionCardProps {
@@ -28,34 +30,28 @@ export const PrescriptionCard = ({ prescription, onDelete, onPress }: Prescripti
     };
 
     const startDate = new Date(prescription.date + 'T00:00:00'); // local midnight
-    const endDate = new Date(startDate);
-    endDate.setDate(startDate.getDate() + (prescription.duration || 1) - 1);
-    endDate.setHours(23, 59, 59, 999);
-
-    const now = new Date();
-    // Priority: duration === 0 is definitive "STOPPED" flag from archive
-    const isStopped = prescription.duration === 0 || now > endDate;
-    const isActive = !isStopped && now >= startDate && now <= endDate;
 
     const isRoutine = prescription.hospital?.toLowerCase().includes('định kỳ') || false;
+    const rxStatus = getPrescriptionStatus(prescription.date, prescription.duration, isRoutine);
+    const isStopped = rxStatus.status === 'stopped' || rxStatus.status === 'completed';
+
     const medicineNames = prescription.medicines.map(m => m.name).filter(Boolean);
     const title = isRoutine
         ? (medicineNames.join(', ') || 'Thuốc định kỳ')
-        : (prescription.hospital || 'Đơn thuốc cá nhân');
+        : (prescription.recordTitle || prescription.hospital || 'Đơn thuốc cá nhân');
+
+    // Build frequency string from first medicine's weekdays
+    const firstMedWeekdays = prescription.medicines[0]?.weekdays;
+    const freqStr = formatFrequency(firstMedWeekdays);
+
     const subtitle = isRoutine
-        ? `${startDate.toLocaleDateString('vi-VN')} • Uống mỗi ngày`
+        ? `${startDate.toLocaleDateString('vi-VN')} • ${freqStr}`
         : `${startDate.toLocaleDateString('vi-VN')}${prescription.duration > 0 ? ` • ${prescription.duration} ngày` : ''}`;
 
-    // Priority badge: Stopped > Routine > Active
-    const statusLabel = isStopped ? 'Đã dừng' : (isRoutine ? 'Thuốc bổ' : 'Đang uống');
-
-    // --- Unified Primary Blue for all card icons (synced with Action Sheet) ---
+    // Card leading icon
     const TagIcon = isRoutine ? 'leaf' : 'clipboard-plus';
     const iconColor = isStopped ? '#9ca3af' : '#1D4ED8';
     const iconBg = isStopped ? '#f3f4f6' : '#DBEAFE';
-
-    const tagBg = isStopped ? 'bg-gray-100' : 'bg-blue-50';
-    const tagText = isStopped ? 'text-gray-500' : 'text-blue-600';
 
     return (
         <Swipeable renderRightActions={renderRightActions} friction={2}>
@@ -80,14 +76,10 @@ export const PrescriptionCard = ({ prescription, onDelete, onPress }: Prescripti
                     </Text>
                 </View>
 
-                {/* Right: Status Tag and Chevron */}
-                <View className="items-end flex-row">
-                    <View className={`px-2 py-1 rounded-md ${tagBg}`}>
-                        <Text className={`text-[11px] font-bold ${tagText}`}>
-                            {statusLabel}
-                        </Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={18} color="#d1d5db" className="ml-2" />
+                {/* Right: Status Badge and Chevron */}
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Badge label={rxStatus.label} variant={rxStatus.badgeVariant} />
+                    <Ionicons name="chevron-forward" size={18} color="#d1d5db" style={{ marginLeft: 8 }} />
                 </View>
             </TouchableOpacity>
         </Swipeable>

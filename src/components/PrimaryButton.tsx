@@ -84,12 +84,12 @@ export default function PrimaryButton({
 
 const styles = StyleSheet.create({
     base: {
-        height: 56,
+        height: 48,
         borderRadius: 100,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        paddingHorizontal: 24,
+        paddingHorizontal: 20,
     },
     solid: {
         backgroundColor: SOLID_BG,
@@ -108,6 +108,6 @@ const styles = StyleSheet.create({
     },
     text: {
         fontSize: 16,
-        fontWeight: '700',
+        fontWeight: '600',
     },
 });

@@ -4,6 +4,8 @@ import {
     Animated, Easing, LayoutAnimation, Platform, UIManager,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import PrimaryButton from './PrimaryButton';
+import Badge from './Badge';
 import { MedicineEntry } from '../types/medicine';
 
 // Enable LayoutAnimation on Android
@@ -270,9 +272,7 @@ const MedicineItemRow: React.FC<MedicineItemRowProps> = ({ med, sessionKey, isCo
                             {med.dosage || `${med.quantity} ${med.unit}`}
                         </Text>
                         {med.mealTiming ? (
-                            <View style={styles.mealTimingBadge}>
-                                <Text style={styles.mealTimingText}>{med.mealTiming}</Text>
-                            </View>
+                            <Badge label={med.mealTiming} variant="warning" />
                         ) : null}
                     </View>
                     {/* Row 3: Note */}
@@ -292,25 +292,17 @@ const MedicineItemRow: React.FC<MedicineItemRowProps> = ({ med, sessionKey, isCo
 
             {/* Read-Only Future State */}
             {dateState === 'future' && (
-                <View style={styles.futureWrap}>
-                    <Text style={styles.futureText}>Dự kiến</Text>
-                </View>
+                <Badge label="Dự kiến" variant="default" />
             )}
 
             {/* ── Read-Only Mode: Status Tags ── */}
             {isReadOnly && dateState !== 'future' && (
                 isConfirmed ? (
-                    <View style={styles.statusTagDone}>
-                        <Text style={styles.statusTagDoneText}>Đã uống ✓</Text>
-                    </View>
+                    <Badge label="Đã uống" variant="success" />
                 ) : dateState === 'past' ? (
-                    <View style={styles.statusTagMissed}>
-                        <Text style={styles.statusTagMissedText}>Bỏ lỡ</Text>
-                    </View>
+                    <Badge label="Bỏ lỡ" variant="danger" />
                 ) : (
-                    <View style={styles.statusTagPending}>
-                        <Text style={styles.statusTagPendingText}>Chưa uống</Text>
-                    </View>
+                    <Badge label="Chưa uống" variant="default" />
                 )
             )}
 
@@ -438,15 +430,10 @@ export const DoseSessionCard = ({
     }
 
     // ─── CTA config ──────────────────────────────────────────
-    let ctaLabel: string;
-    let ctaStyle: any;
-    if (confirmedCount === 0) {
-        ctaLabel = 'Xác nhận uống tất cả';
-        ctaStyle = styles.ctaPrimary;
-    } else {
-        ctaLabel = `Xác nhận phần còn lại (${remainingCount})`;
-        ctaStyle = styles.ctaSecondary;
-    }
+    const ctaLabel = confirmedCount === 0
+        ? 'Xác nhận uống tất cả'
+        : `Xác nhận phần còn lại (${remainingCount})`;
+    const ctaVariant = confirmedCount === 0 ? 'solid' as const : 'outline' as const;
 
     return (
         <Animated.View style={[
@@ -530,20 +517,14 @@ export const DoseSessionCard = ({
                 </View>
             )}
 
-            {/* CTA Button — only if there are remaining meds AND today AND not read-only */}
             {!isReadOnly && dateState === 'today' && remainingCount > 0 && !isFullyDone && (
-                <TouchableOpacity
-                    style={[styles.ctaButton, ctaStyle]}
+                <PrimaryButton
+                    title={ctaLabel}
+                    variant={ctaVariant}
                     onPress={handleConfirmAll}
-                    activeOpacity={0.8}
-                >
-                    <Text style={[
-                        styles.ctaText,
-                        resolvedCount > 0 && styles.ctaTextSecondary,
-                    ]}>
-                        {ctaLabel}
-                    </Text>
-                </TouchableOpacity>
+                    icon="checkmark-done-outline"
+                    style={{ marginTop: 8 }}
+                />
             )}
         </Animated.View>
     );
@@ -769,14 +750,6 @@ const styles = StyleSheet.create({
         backgroundColor: '#3b82f6',
         borderColor: '#3b82f6',
     },
-    futureWrap: {
-        paddingHorizontal: 8,
-    },
-    futureText: {
-        fontSize: 12,
-        color: '#9ca3af',
-        fontStyle: 'italic',
-    },
     lateWrap: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -809,29 +782,7 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: '#d97706', // amber 600
     },
-    // CTA Buttons
-    ctaButton: {
-        borderRadius: 14,
-        paddingVertical: 13,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    ctaPrimary: {
-        backgroundColor: '#2563eb',
-    },
-    ctaSecondary: {
-        backgroundColor: '#ffffff',
-        borderWidth: 1.5,
-        borderColor: '#2563eb',
-    },
-    ctaText: {
-        fontSize: 15,
-        fontWeight: '700',
-        color: '#ffffff',
-    },
-    ctaTextSecondary: {
-        color: '#2563eb',
-    },
+
     doneRow: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -848,70 +799,11 @@ const styles = StyleSheet.create({
         color: '#6b7280',
         marginTop: 2,
     },
-    timeBadgeSmall: {
-        backgroundColor: '#f3f4f6',
-        paddingHorizontal: 6,
-        paddingVertical: 2,
-        borderRadius: 6,
-        marginRight: 4,
-    },
-    timeBadgeTextSmall: {
-        fontSize: 11,
-        fontWeight: '700',
-        color: '#4b5563',
-    },
     completedAtText: {
         fontSize: 12,
         color: '#16a34a',
         fontWeight: '500',
         marginTop: 2,
-    },
-    // ── Status Tags (Read-only mode) ──
-    statusTagDone: {
-        backgroundColor: '#dcfce7',
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 8,
-    },
-    statusTagDoneText: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: '#16a34a',
-    },
-    statusTagPending: {
-        backgroundColor: '#f3f4f6',
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 8,
-    },
-    statusTagPendingText: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: '#9ca3af',
-    },
-    statusTagMissed: {
-        backgroundColor: '#fef2f2',
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 8,
-    },
-    statusTagMissedText: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: '#ef4444',
-    },
-    mealTimingBadge: {
-        backgroundColor: '#FFF7ED',
-        borderRadius: 6,
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-        borderWidth: 1,
-        borderColor: '#FDBA74',
-    },
-    mealTimingText: {
-        fontSize: 11,
-        fontWeight: '600',
-        color: '#EA580C',
     },
     noteRow: {
         flexDirection: 'row',

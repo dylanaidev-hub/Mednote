@@ -18,7 +18,6 @@ import Profile from '../screens/Profile';
 import PrescriptionDetailScreen from '../screens/PrescriptionDetailScreen';
 import { colors } from '../theme/colors';
 import { GlobalToast } from '../context/ToastContext';
-import { useNotificationResponse } from '../hooks/useNotificationResponse';
 import { NotificationService } from '../services/notificationService';
 
 const Tab = createBottomTabNavigator();
@@ -398,8 +397,7 @@ export default function AppNavigator() {
     const [routeName, setRouteName] = useState<string>('Dashboard');
     const insets = useSafeAreaInsets();
 
-    // Register notification response listener
-    useNotificationResponse();
+
 
     const bottomTabs = ['Dashboard', 'Schedule', 'Records', 'Profile'];
     const isTabScreen = bottomTabs.includes(routeName);

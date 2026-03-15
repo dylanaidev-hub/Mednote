@@ -45,6 +45,7 @@ const CONFIRMED_MEDS_KEY = '@mednote_confirmed_meds_today';
 
 export interface Prescription {
     id: string;
+    recordTitle?: string;
     hospital: string;
     date: string;
     duration: number;
@@ -333,6 +334,7 @@ export const MedProvider = ({ children }: { children: ReactNode }) => {
             if (useSQLite.current) {
                 const record: PrescriptionRecord = {
                     id: prescription.id,
+                    recordTitle: prescription.recordTitle,
                     hospital: prescription.hospital,
                     date: prescription.date,
                     duration: prescription.duration,
@@ -434,6 +436,7 @@ export const MedProvider = ({ children }: { children: ReactNode }) => {
             if (useSQLite.current) {
                 const record: PrescriptionRecord = {
                     id: prescription.id,
+                    recordTitle: prescription.recordTitle,
                     hospital: prescription.hospital,
                     date: prescription.date,
                     duration: prescription.duration,

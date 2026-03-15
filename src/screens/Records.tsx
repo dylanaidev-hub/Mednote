@@ -188,7 +188,7 @@ export default function Records() {
                         maxToRenderPerBatch={10}
                         windowSize={5}
                         showsVerticalScrollIndicator={false}
-                        contentContainerStyle={{ paddingBottom: 100 }}
+                        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 20) + 80 }}
                     />
                 </>
             )}
@@ -283,7 +283,7 @@ export default function Records() {
                         </View>
 
                         {/* Footer */}
-                        <View style={s.modalFooter}>
+                        <View style={[s.modalFooter, { paddingBottom: Math.max(insets.bottom, 16) }]}>
                             <TouchableOpacity
                                 style={s.modalResetBtn}
                                 onPress={() => { setStatusFilter('all'); setTypeFilter('all'); }}

@@ -32,7 +32,7 @@ export async function getDB(): Promise<SQLite.SQLiteDatabase> {
 }
 
 // Current schema version — bump this when adding new migrations
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 /**
  * Initialize the database with versioned migrations.
@@ -117,12 +117,20 @@ export async function initDB(): Promise<void> {
         currentVersion = 2;
     }
 
+    // ── Migration v2 → v3: Add record_title column ───────
+    if (currentVersion < 3) {
+        console.log('MedNote DB: Running migration v2 → v3 (record_title)');
+
+        try {
+            await db.execAsync(`ALTER TABLE medications ADD COLUMN record_title TEXT`);
+        } catch {
+            // Column already exists — safe to ignore
+        }
+
+        currentVersion = 3;
+    }
+
     // ── Future migrations go here ────────────────────────────
-    // if (currentVersion < 3) {
-    //     console.log('MedNote DB: Running migration v2 → v3 (description)');
-    //     await db.execAsync(`ALTER TABLE ...`);
-    //     currentVersion = 3;
-    // }
 
     // ── Persist final version ────────────────────────────────
     await db.execAsync(`PRAGMA user_version = ${DB_VERSION}`);

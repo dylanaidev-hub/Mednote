@@ -15,27 +15,27 @@ function getNaggingContent(offset: number, slotKey: string, timeSlot: string, co
     switch (offset) {
         case 0:
             return {
-                title: '💊 Đến giờ uống thuốc rồi!',
-                body: `Bạn có ${count} loại thuốc cần uống lúc ${timeSlot}: ${medNames}`,
+                title: '🌿 Tới giờ chăm sóc bản thân rồi!',
+                body: `Đã ${timeSlot} rồi, bạn nhớ uống ${count} loại thuốc này nhé: ${medNames}.`,
             };
         case 5:
             return {
-                title: 'Bạn quên mình rồi sao? 🥺',
-                body: `Cữ thuốc [${slotKey}] lúc ${timeSlot} đang buồn.`,
+                title: '⏳ Bạn đang dở tay chút việc à?',
+                body: `Đừng quên cữ thuốc ${slotKey} lúc ${timeSlot} nha. Uống thuốc đúng giờ cho mau khỏe!`,
             };
         case 15:
             return {
-                title: 'Báo động sức khỏe! 🚨',
-                body: `Đã trễ 15 phút! Uống thuốc mau: ${medNames}`,
+                title: '💊 Thuốc vẫn đang ngoan ngoãn đợi bạn nè!',
+                body: `Mình nhắc nhẹ một chút, dành 1 phút uống ${medNames} để cơ thể khỏe mạnh nhé.`,
             };
         case 30:
             return {
-                title: 'MedNote bỏ cuộc đây... 💔',
-                body: `Cữ ${slotKey} lúc ${timeSlot} đã trễ 30 phút. Mình sẽ ngừng gọi.`,
+                title: `💌 MedNote tạm ngưng nhắc cữ ${slotKey} nhé!`,
+                body: `Đã qua cữ ${timeSlot} một lúc rồi. Bạn nhớ sắp xếp uống thuốc sớm nhất có thể nha!`,
             };
         default:
             return {
-                title: '💊 Nhắc nhở uống thuốc',
+                title: '🌿 Tới giờ chăm sóc bản thân rồi!',
                 body: `${medNames}`,
             };
     }
@@ -83,7 +83,7 @@ Notifications.setNotificationHandler({
     },
 });
 
-const NOTIFICATION_CATEGORY_ID = 'medication-reminder';
+
 
 // Normalize slot key to capitalized form
 function normalizeSlotKey(key: string): string {
@@ -133,24 +133,6 @@ export const NotificationService = {
                 lightColor: '#FF231F7C',
             });
         }
-
-        // Set up notification categories for action buttons
-        await Notifications.setNotificationCategoryAsync(NOTIFICATION_CATEGORY_ID, [
-            {
-                identifier: 'TAKE_ACTION',
-                buttonTitle: '✅ Đã uống',
-                options: {
-                    opensAppToForeground: false,
-                },
-            },
-            {
-                identifier: 'SNOOZE_ACTION',
-                buttonTitle: '⏳ Nhắc lại sau 10p',
-                options: {
-                    opensAppToForeground: false,
-                },
-            },
-        ]);
 
         return true;
     },
@@ -323,8 +305,8 @@ export const NotificationService = {
                         const content = naggingMode
                             ? getNaggingContent(offset, slotKey, timeSlot, count, medNames)
                             : {
-                                title: '💊 Đến giờ uống thuốc rồi!',
-                                body: `Bạn có ${count} loại thuốc cần uống lúc ${timeSlot}: ${medNames}`,
+                                title: '🌿 Tới giờ chăm sóc bản thân rồi!',
+                                body: `Đã ${timeSlot} rồi, bạn nhớ uống ${count} loại thuốc này nhé: ${medNames}.`,
                             };
 
                         const secondsUntilTrigger = Math.max(1, Math.floor((triggerDate.getTime() - Date.now()) / 1000));
@@ -345,7 +327,6 @@ export const NotificationService = {
                                     offset: offset,
                                     baseScheduleId: baseScheduleId,
                                 },
-                                categoryIdentifier: NOTIFICATION_CATEGORY_ID,
                                 sound: true,
                                 ...(Platform.OS === 'android' ? { channelId: 'default' } : {}),
                             },

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { View, Text, ScrollView, StyleSheet, Platform, LayoutAnimation, TouchableOpacity, Animated, AppState, Alert } from 'react-native';
 import * as Location from 'expo-location';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WeatherWidget } from '../components/WeatherWidget';
 import {
     DoseSessionCard,
@@ -28,6 +29,7 @@ import {
 } from '../database/doseLogDAO';
 
 export default function Dashboard() {
+    const insets = useSafeAreaInsets();
     const { records, confirmedMedsToday, completedAtMap, updateConfirmedMed, clearConfirmedMeds, isLoading } = useMedContext();
     const navigation = useNavigation<any>();
 
@@ -284,7 +286,7 @@ export default function Dashboard() {
         <View style={styles.container}>
             <ScrollView
                 style={styles.scrollView}
-                contentContainerStyle={styles.scrollContent}
+                contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom, 20) + 80 }]}
                 showsVerticalScrollIndicator={false}
             >
                 {/* Weather Widget */}
