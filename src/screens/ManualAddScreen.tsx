@@ -109,8 +109,8 @@ export default function ManualAddScreen() {
         Keyboard.dismiss();
         if (!validateCurrentMed()) return;
 
-            if (!hospital.trim() || !recordTitle.trim()) {
-                Alert.alert('Thiếu thông tin', 'Vui lòng nhập tên bệnh án và nơi khám.');
+            if (!recordTitle.trim()) {
+                Alert.alert('Thiếu thông tin', 'Vui lòng nhập tên bệnh án.');
             return;
         }
 
@@ -197,11 +197,11 @@ export default function ManualAddScreen() {
                 </View>
 
                 {/* Nơi khám */}
-                <View style={[s.inputWrap, !hospital.trim() && showError && s.inputWrapError]}>
+                <View style={s.inputWrap}>
                     <MaterialCommunityIcons name="office-building-outline" size={18} color="#9ca3af" style={s.inputIcon} />
                     <TextInput
                         style={s.inputText}
-                        placeholder="Nơi khám / Bệnh viện"
+                        placeholder="Nơi khám / Bệnh viện (Tùy chọn)"
                         placeholderTextColor="#d1d5db"
                         value={hospital}
                         onChangeText={setHospital}

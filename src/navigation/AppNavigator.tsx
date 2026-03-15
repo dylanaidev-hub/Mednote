@@ -264,6 +264,10 @@ const CustomTabBar = ({ state, descriptors, navigation: tabNavigation }: BottomT
 // ─── Tab Styles ──────────────────────────────────────────────────
 const tabStyles = StyleSheet.create({
     outerWrapper: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        bottom: 0,
         backgroundColor: 'transparent',
         paddingHorizontal: 12,
         paddingTop: 0,
@@ -381,6 +385,14 @@ function TabNavigator() {
                 headerStyle: { backgroundColor: colors.white },
                 headerTitleStyle: { color: colors.primary, fontWeight: 'bold' },
                 tabBarHideOnKeyboard: true,
+                tabBarStyle: {
+                    position: 'absolute',
+                    height: 0,
+                    backgroundColor: 'transparent',
+                    borderTopWidth: 0,
+                    elevation: 0,
+                    shadowOpacity: 0,
+                },
             }}
         >
             <Tab.Screen name="Dashboard" component={Dashboard} options={{ title: 'Trang chủ', headerShown: false }} />
