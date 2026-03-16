@@ -6,6 +6,27 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import { SESSIONS, SESSION_DEFAULTS } from '../types/medicine';
 
+// ─── Time Bounds per session (matching Timeline windows) ────────
+const TIME_BOUNDS: Record<string, { minH: number, maxH: number, maxM: number }> = {
+    'sáng':  { minH: 0,  maxH: 10, maxM: 59 },
+    'trưa':  { minH: 11, maxH: 14, maxM: 59 },
+    'chiều': { minH: 15, maxH: 18, maxM: 59 },
+    'tối':   { minH: 19, maxH: 23, maxM: 59 },
+};
+
+/** Get the parent session key from any timeId (handles sub-times) */
+function resolveSessionKey(timeId: string): string {
+    const base = timeId.includes('_sub_') ? timeId.split('_sub_')[0] : timeId;
+    return base.toLowerCase();
+}
+
+/** Build a Date with specific hour:minute (for picker min/max) */
+function makeTime(h: number, m: number): Date {
+    const d = new Date();
+    d.setHours(h, m, 0, 0);
+    return d;
+}
+
 interface SessionTimeSelectorProps {
     frequency: string[];
     sessionTimes: Record<string, string>;
@@ -102,7 +123,8 @@ export default function SessionTimeSelector({
         // Default sub-time: primary time + 2 hours
         const primaryTime = sessionTimes[sessionId] || SESSION_DEFAULTS[sessionId] || '08:00';
         const [h, m] = primaryTime.split(':').map(Number);
-        const newH = Math.min(h + 2, 23);
+        const bounds = TIME_BOUNDS[resolveSessionKey(sessionId)];
+        const newH = bounds ? Math.min(h + 2, bounds.maxH) : Math.min(h + 2, 23);
         const subTime = `${String(newH).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 
         const newFreq = [...frequency, subId];
@@ -118,12 +140,22 @@ export default function SessionTimeSelector({
         onUpdate(newFreq, newSessionTimes);
     };
 
-    // ─── TimePicker confirm ──────────────────────────────────
     const handleConfirm = (date: Date) => {
         if (pickerConfig) {
-            const hours = date.getHours().toString().padStart(2, '0');
-            const minutes = date.getMinutes().toString().padStart(2, '0');
-            const newTime = `${hours}:${minutes}`;
+            let hours = date.getHours();
+            let minutes = date.getMinutes();
+
+            // Clamp to session bounds
+            const sessionKey = resolveSessionKey(pickerConfig.timeId);
+            const bounds = TIME_BOUNDS[sessionKey];
+            if (bounds) {
+                if (hours < bounds.minH) { hours = bounds.minH; minutes = 0; }
+                if (hours > bounds.maxH || (hours === bounds.maxH && minutes > bounds.maxM)) {
+                    hours = bounds.maxH; minutes = bounds.maxM;
+                }
+            }
+
+            const newTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 
             // Duplicate check
             const duplicateId = Object.keys(sessionTimes).find(id =>
@@ -259,6 +291,16 @@ export default function SessionTimeSelector({
                     d.setHours(parseInt(h), parseInt(m), 0, 0);
                     return d;
                 })()}
+                minimumDate={(() => {
+                    if (!pickerConfig) return undefined;
+                    const bounds = TIME_BOUNDS[resolveSessionKey(pickerConfig.timeId)];
+                    return bounds ? makeTime(bounds.minH, 0) : undefined;
+                })()}
+                maximumDate={(() => {
+                    if (!pickerConfig) return undefined;
+                    const bounds = TIME_BOUNDS[resolveSessionKey(pickerConfig.timeId)];
+                    return bounds ? makeTime(bounds.maxH, bounds.maxM) : undefined;
+                })()}
                 onConfirm={handleConfirm}
                 onCancel={() => setShowTimePicker(false)}
                 confirmTextIOS="Xong"
@@ -270,6 +312,15 @@ export default function SessionTimeSelector({
                         <Text style={{ fontSize: 16, fontWeight: '700', color: '#1f2937' }}>
                             {pickerConfig?.title || 'Chọn giờ uống'}
                         </Text>
+                        {pickerConfig && (() => {
+                            const bounds = TIME_BOUNDS[resolveSessionKey(pickerConfig.timeId)];
+                            if (!bounds) return null;
+                            return (
+                                <Text style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>
+                                    Khung giờ: {String(bounds.minH).padStart(2, '0')}:00 – {String(bounds.maxH).padStart(2, '0')}:{String(bounds.maxM).padStart(2, '0')}
+                                </Text>
+                            );
+                        })()}
                     </View>
                 )}
             />

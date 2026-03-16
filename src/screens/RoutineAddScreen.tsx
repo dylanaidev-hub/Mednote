@@ -6,6 +6,7 @@ import {
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import AutocompleteInput from '../components/AutocompleteInput';
 import { useNavigation, useRoute, CommonActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMedContext, Prescription } from '../context/MedContext';
@@ -46,7 +47,7 @@ export default function RoutineAddScreen() {
         editMed?.weekdays || []
     );
 
-    const units = ['Viên', 'Gói', 'Lọ', 'ml', 'ống'];
+    const units = ['Viên', 'Gói', 'Lọ', 'ml', 'Ống'];
     const mealTimings = ['Trước ăn', 'Sau ăn', 'Khi đói', 'Tùy ý'];
     const weekdayLabels = [
         { day: 1, label: 'T2' },
@@ -176,25 +177,25 @@ export default function RoutineAddScreen() {
                 <View style={s.infoBanner}>
                     <MaterialCommunityIcons name="leaf" size={16} color="#16a34a" />
                     <Text style={s.infoText}>
-                        Mỗi lần lưu tạo 1 bản ghi riêng. Dùng "Lưu & Thêm" để nhập nhiều loại nhanh hơn.
+                        Nhấn '<Text style={{ fontWeight: '700' }}>Lưu & Thêm</Text>' để tiếp tục tạo đơn thuốc
                     </Text>
                 </View>
 
                 {/* ═══ SECTION 1: Thông tin thuốc ══════════ */}
                 <Text style={s.sectionLabel}>Thông tin thuốc <Text style={{ color: '#ef4444' }}>*</Text></Text>
 
-                {/* Tên thuốc */}
-                <View style={[s.inputWrap, showError && !form.name.trim() && s.inputWrapError]}>
-                    <MaterialCommunityIcons name="pill" size={18} color="#9ca3af" style={s.inputIcon} />
-                    <TextInput
-                        style={s.inputText}
-                        placeholder="Tên thuốc / TPCN (VD: Omega 3)"
-                        placeholderTextColor="#d1d5db"
-                        value={form.name}
-                        onChangeText={v => update('name', v)}
-                        returnKeyType="next"
-                    />
-                </View>
+                {/* Tên thuốc — Autocomplete */}
+                <AutocompleteInput
+                    value={form.name}
+                    onChangeText={v => update('name', v)}
+                    placeholder="Tên thuốc / TPCN (VD: Omega 3)"
+                    placeholderTextColor="#d1d5db"
+                    returnKeyType="next"
+                    icon={<MaterialCommunityIcons name="pill" size={18} color="#9ca3af" style={s.inputIcon} />}
+                    error={showError && !form.name.trim()}
+                    errorStyle={s.inputWrapError}
+                    containerStyle={{ zIndex: 10 }}
+                />
 
                 {/* Liều lượng — full width */}
                 <View style={[s.inputWrap, showError && !form.quantity.trim() && s.inputWrapError]}>
@@ -207,6 +208,11 @@ export default function RoutineAddScreen() {
                         onChangeText={v => update('quantity', v)}
                         keyboardType="numeric"
                     />
+                    {form.quantity.length > 0 && (
+                        <TouchableOpacity onPress={() => update('quantity', '')} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                            <Ionicons name="close-circle" size={18} color="#9ca3af" />
+                        </TouchableOpacity>
+                    )}
                 </View>
 
                 {/* Đơn vị — horizontal chips, full width below quantity */}
@@ -290,6 +296,11 @@ export default function RoutineAddScreen() {
                         multiline
                         textAlignVertical="top"
                     />
+                    {(form.note || '').length > 0 && (
+                        <TouchableOpacity onPress={() => update('note', '')} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} style={{ alignSelf: 'flex-start', marginTop: 13 }}>
+                            <Ionicons name="close-circle" size={18} color="#9ca3af" />
+                        </TouchableOpacity>
+                    )}
                 </View>
 
                 {/* Error banner */}

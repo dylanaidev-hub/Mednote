@@ -9,6 +9,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute, CommonActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
+import AutocompleteInput from '../components/AutocompleteInput';
 
 import { MedicineEntry, SESSIONS, SESSION_DEFAULTS } from '../types/medicine';
 import { formatLocalDate } from '../utils/dateUtils';
@@ -54,7 +55,7 @@ export default function ManualAddScreen() {
     );
     const [currentMedIndex, setCurrentMedIndex] = useState(0);
 
-    const units = ['Viên', 'Gói', 'Lọ', 'ml', 'ống'];
+    const units = ['Viên', 'Gói', 'Lọ', 'ml', 'Ống'];
     const mealTimings = ['Trước ăn', 'Sau ăn', 'Khi đói', 'Tùy ý'];
 
     const endDate = new Date(date || new Date());
@@ -194,6 +195,11 @@ export default function ManualAddScreen() {
                         onChangeText={setRecordTitle}
                         returnKeyType="next"
                     />
+                    {recordTitle.length > 0 && (
+                        <TouchableOpacity onPress={() => setRecordTitle('')} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                            <Ionicons name="close-circle" size={18} color="#9ca3af" />
+                        </TouchableOpacity>
+                    )}
                 </View>
 
                 {/* Nơi khám */}
@@ -207,6 +213,11 @@ export default function ManualAddScreen() {
                         onChangeText={setHospital}
                         returnKeyType="next"
                     />
+                    {hospital.length > 0 && (
+                        <TouchableOpacity onPress={() => setHospital('')} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                            <Ionicons name="close-circle" size={18} color="#9ca3af" />
+                        </TouchableOpacity>
+                    )}
                 </View>
 
                 {/* Ngày bắt đầu uống — one-tap calendar modal */}
@@ -252,6 +263,11 @@ export default function ManualAddScreen() {
                         value={duration}
                         onChangeText={setDuration}
                     />
+                    {duration.length > 0 && (
+                        <TouchableOpacity onPress={() => setDuration('')} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} style={{ marginRight: 4 }}>
+                            <Ionicons name="close-circle" size={18} color="#9ca3af" />
+                        </TouchableOpacity>
+                    )}
                     <Text style={s.inputSuffix}>ngày</Text>
                 </View>
 
@@ -312,18 +328,18 @@ export default function ManualAddScreen() {
                     </Text>
                 </View>
 
-                {/* Tên thuốc */}
-                <View style={[s.inputWrap, showError && !med.name.trim() && s.inputWrapError]}>
-                    <MaterialCommunityIcons name="pill" size={18} color="#9ca3af" style={s.inputIcon} />
-                    <TextInput
-                        style={s.inputText}
-                        placeholder="Tên thuốc (VD: Paracetamol 500mg)"
-                        placeholderTextColor="#d1d5db"
-                        value={med.name}
-                        onChangeText={v => updateMed('name', v)}
-                        returnKeyType="next"
-                    />
-                </View>
+                {/* Tên thuốc — Autocomplete */}
+                <AutocompleteInput
+                    value={med.name}
+                    onChangeText={v => updateMed('name', v)}
+                    placeholder="Tên thuốc (VD: Paracetamol 500mg)"
+                    placeholderTextColor="#d1d5db"
+                    returnKeyType="next"
+                    icon={<MaterialCommunityIcons name="pill" size={18} color="#9ca3af" style={s.inputIcon} />}
+                    error={showError && !med.name.trim()}
+                    errorStyle={s.inputWrapError}
+                    containerStyle={{ zIndex: 10 }}
+                />
 
                 {/* Liều lượng — full width */}
                 <View style={[s.inputWrap, showError && !med.quantity.trim() && s.inputWrapError]}>
@@ -336,6 +352,11 @@ export default function ManualAddScreen() {
                         value={med.quantity}
                         onChangeText={v => updateMed('quantity', v)}
                     />
+                    {med.quantity.length > 0 && (
+                        <TouchableOpacity onPress={() => updateMed('quantity', '')} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                            <Ionicons name="close-circle" size={18} color="#9ca3af" />
+                        </TouchableOpacity>
+                    )}
                 </View>
 
                 {/* Đơn vị — horizontal chips */}
@@ -395,6 +416,11 @@ export default function ManualAddScreen() {
                         multiline
                         textAlignVertical="top"
                     />
+                    {(med.note || '').length > 0 && (
+                        <TouchableOpacity onPress={() => updateMed('note', '')} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} style={{ alignSelf: 'flex-start', marginTop: 13 }}>
+                            <Ionicons name="close-circle" size={18} color="#9ca3af" />
+                        </TouchableOpacity>
+                    )}
                 </View>
 
                 {showError && (
@@ -412,7 +438,7 @@ export default function ManualAddScreen() {
                 {/* Secondary: Save current med + add another */}
                 <PrimaryButton
                     variant="outline"
-                    title="Thêm thuốc khác"
+                    title="Thêm loại thuốc khác"
                     icon="add-circle-outline"
                     onPress={handleSaveAndAddMore}
                 />

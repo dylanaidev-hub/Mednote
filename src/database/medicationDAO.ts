@@ -168,19 +168,12 @@ export async function updatePrescription(prescription: PrescriptionRecord): Prom
 
         const recordTitleSql = prescription.recordTitle ? `'${esc(prescription.recordTitle)}'` : 'NULL';
 
-        // Step 1: UPDATE medication row
+        // Step 1: UPSERT medication row (handles both existing + newly-added meds)
         statements.push(
-            `UPDATE medications SET
-                name = '${esc(med.name)}',
-                type = '${type}',
-                duration = ${prescription.duration},
-                hospital = '${esc(prescription.hospital)}',
-                record_title = ${recordTitleSql},
-                images = '${esc(imagesJson)}',
-                note = '${esc(med.note || '')}',
-                weekdays = ${weekdaysSql},
-                meal_timing = '${esc(med.mealTiming || '')}'
-             WHERE id = '${esc(med.id)}'`
+            `INSERT OR REPLACE INTO medications (id, name, type, created_at, prescription_id, hospital, record_title, duration, start_date, images, note, weekdays, meal_timing)
+             VALUES ('${esc(med.id)}', '${esc(med.name)}', '${type}',
+                     COALESCE((SELECT created_at FROM medications WHERE id = '${esc(med.id)}'), ${Date.now()}),
+                     '${esc(prescription.id)}', '${esc(prescription.hospital)}', ${recordTitleSql}, ${prescription.duration}, '${esc(prescription.date)}', '${esc(imagesJson)}', '${esc(med.note || '')}', ${weekdaysSql}, '${esc(med.mealTiming || '')}')`
         );
 
         // Step 2: DELETE old schedules for this med
@@ -303,7 +296,7 @@ export async function getAllPrescriptions(): Promise<PrescriptionRecord[]> {
     const db = await getDB();
 
     const medRows = await db.getAllAsync<MedicationRow>(
-        `SELECT * FROM medications ORDER BY created_at DESC`
+        `SELECT * FROM medications ORDER BY created_at ASC`
     );
 
     if (medRows.length === 0) return [];
@@ -407,6 +400,8 @@ export async function getAllPrescriptions(): Promise<PrescriptionRecord[]> {
         });
     }
 
+    // Sort prescriptions newest-first (medicines within each are already oldest-first from ASC query)
+    prescriptions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     return prescriptions;
 }
 

@@ -133,7 +133,7 @@ export default function Profile() {
         <View style={styles.root}>
             <ScrollView
                 style={{ flex: 1 }}
-                contentContainerStyle={{ paddingTop: insets.top + 16, paddingBottom: insets.bottom + SP.xl }}
+                contentContainerStyle={{ paddingTop: insets.top + 16, paddingBottom: insets.bottom + 120 }}
                 showsVerticalScrollIndicator={false}
             >
                 {/* Page Title */}
@@ -182,24 +182,23 @@ export default function Profile() {
                             ) : null}
                         </TouchableOpacity>
                     ) : (
-                        <TouchableOpacity
-                            style={styles.emptyMedicalCard}
-                            activeOpacity={0.7}
-                            onPress={openEditModal}
-                        >
+                        <View style={styles.emptyMedicalCard}>
                             <View style={styles.emptyMedicalContent}>
                                 <View style={styles.emptyMedicalIconWrap}>
-                                    <MaterialCommunityIcons name="card-account-details-outline" size={32} color="#9ca3af" />
+                                    <MaterialCommunityIcons name="card-account-details-outline" size={32} color="#3b82f6" />
                                 </View>
-                                <View style={{ flex: 1 }}>
-                                    <Text style={styles.emptyMedicalTitle}>Thiết lập Thẻ Y tế khẩn cấp</Text>
-                                    <Text style={styles.emptyMedicalSubtitle}>
-                                        Cung cấp thông tin nhóm máu, dị ứng... giúp bác sĩ và người thân xử lý kịp thời.
-                                    </Text>
-                                    <Text style={styles.emptyMedicalCTA}>⊕ Thêm thông tin ngay</Text>
-                                </View>
+                                <Text style={styles.emptyMedicalTitle}>Thiết lập Thẻ Y tế khẩn cấp</Text>
+                                <Text style={styles.emptyMedicalSubtitle}>
+                                    Cung cấp thông tin nhóm máu, dị ứng... giúp bác sĩ và người thân xử lý kịp thời.
+                                </Text>
+                                <PrimaryButton
+                                    title="Thêm thông tin ngay"
+                                    icon="add-circle-outline"
+                                    onPress={openEditModal}
+                                    style={{ marginTop: 4 }}
+                                />
                             </View>
-                        </TouchableOpacity>
+                        </View>
                     )}
                 </View>
 
@@ -533,34 +532,30 @@ const styles = StyleSheet.create({
         padding: SP.lg,
     },
     emptyMedicalContent: {
-        flexDirection: 'row',
         alignItems: 'center',
     },
     emptyMedicalIconWrap: {
-        width: 56,
-        height: 56,
-        borderRadius: 16,
-        backgroundColor: '#f3f4f6',
+        width: 64,
+        height: 64,
+        borderRadius: 32,
+        backgroundColor: '#eff6ff',
         alignItems: 'center',
         justifyContent: 'center',
-        marginRight: SP.md,
+        marginBottom: SP.md,
     },
     emptyMedicalTitle: {
-        fontSize: 15,
+        fontSize: 16,
         fontWeight: '700',
-        color: '#374151',
-        marginBottom: 4,
+        color: '#1f2937',
+        marginBottom: 6,
+        textAlign: 'center',
     },
     emptyMedicalSubtitle: {
         fontSize: 13,
         color: '#6b7280',
         lineHeight: 18,
-        marginBottom: 8,
-    },
-    emptyMedicalCTA: {
-        fontSize: 13,
-        fontWeight: '700',
-        color: '#3b82f6',
+        textAlign: 'center',
+        marginBottom: SP.md,
     },
 
     // Settings sections

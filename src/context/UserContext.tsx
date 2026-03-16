@@ -23,14 +23,6 @@ interface UserContextType {
 
 const MEDICAL_STORAGE_KEY = 'mednote_medical_info_v2';
 
-const DEFAULT_MEDICAL: MedicalInfo = {
-    weight: '68',
-    height: '175',
-    bloodType: 'O',
-    rh: '+',
-    allergies: 'Dị ứng Penicillin, Lactose',
-};
-
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
 export const useUser = () => {
@@ -42,7 +34,7 @@ export const useUser = () => {
 };
 
 export const UserProvider = ({ children }: { children: React.ReactNode }) => {
-    const [medicalInfo, setMedicalInfo] = useState<MedicalInfo | null>(DEFAULT_MEDICAL);
+    const [medicalInfo, setMedicalInfo] = useState<MedicalInfo | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
     // Initial load
