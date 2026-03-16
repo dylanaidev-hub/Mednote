@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import {
     View, Text, StyleSheet, ScrollView, TouchableOpacity,
-    Switch, Modal, TextInput, KeyboardAvoidingView, Platform,
-    Pressable, ActivityIndicator, Keyboard
+    Switch, TextInput, Keyboard, Platform,
+    ActivityIndicator
 } from 'react-native';
+import BottomSheet from '../components/BottomSheet';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -306,141 +307,128 @@ export default function Profile() {
                 </View>
             </ScrollView>
 
-            {/* Medical ID Modal (Action Sheet) */}
-            <Modal
-                visible={isModalVisible}
-                animationType="slide"
-                transparent={true}
-                onRequestClose={() => setIsModalVisible(false)}
-            >
-                <KeyboardAvoidingView
-                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-                    style={styles.modalOverlay}
-                >
-                    <Pressable style={styles.modalBackdrop} onPress={() => { Keyboard.dismiss(); setIsModalVisible(false); }} />
-                    <View style={styles.modalContent}>
-                        <View style={styles.modalHeader}>
-                            <TouchableOpacity onPress={() => setIsModalVisible(false)} style={styles.modalCloseBtn}>
-                                <Ionicons name="close" size={24} color="#1f2937" />
-                            </TouchableOpacity>
-                            <Text style={styles.modalTitle}>Hồ sơ Y tế</Text>
-                            <View style={{ width: 40 }} />
-                        </View>
-
-                        <ScrollView
-                            style={styles.modalForm}
-                            showsVerticalScrollIndicator={false}
-                            keyboardShouldPersistTaps="handled"
-                            keyboardDismissMode="interactive"
-                        >
-                            {/* Weight & Height Row */}
-                            <View style={styles.formRow}>
-                                <View style={[styles.formField, { marginRight: 12 }]}>
-                                    <Text style={styles.inputLabel}>Cân nặng</Text>
-                                    <View style={styles.inputWrapper}>
-                                        <TextInput
-                                            style={styles.textInput}
-                                            value={tempInfo.weight}
-                                            onChangeText={(t) => setTempInfo({ ...tempInfo, weight: t })}
-                                            placeholder="--"
-                                            placeholderTextColor="#9ca3af"
-                                            keyboardType="numeric"
-                                        />
-                                        <Text style={styles.inputUnit}>kg</Text>
-                                    </View>
-                                </View>
-                                <View style={styles.formField}>
-                                    <Text style={styles.inputLabel}>Chiều cao</Text>
-                                    <View style={styles.inputWrapper}>
-                                        <TextInput
-                                            style={styles.textInput}
-                                            value={tempInfo.height}
-                                            onChangeText={(t) => setTempInfo({ ...tempInfo, height: t })}
-                                            placeholder="--"
-                                            placeholderTextColor="#9ca3af"
-                                            keyboardType="numeric"
-                                        />
-                                        <Text style={styles.inputUnit}>cm</Text>
-                                    </View>
-                                </View>
-                            </View>
-
-                            {/* Blood Type Chips */}
-                            <Text style={styles.inputLabel}>Nhóm máu</Text>
-                            <View style={styles.bloodChipsRow}>
-                                {BLOOD_TYPES.map(type => (
-                                    <TouchableOpacity
-                                        key={type}
-                                        style={[
-                                            styles.bloodChip,
-                                            tempInfo.bloodType === type && styles.bloodChipActive
-                                        ]}
-                                        onPress={() => {
-                                            Keyboard.dismiss();
-                                            setTimeout(() => {
-                                                setTempInfo({ ...tempInfo, bloodType: type });
-                                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                                            }, 100);
-                                        }}
-                                    >
-                                        <Text style={[
-                                            styles.bloodChipText,
-                                            tempInfo.bloodType === type && styles.bloodChipTextActive
-                                        ]}>
-                                            {type}
-                                        </Text>
-                                    </TouchableOpacity>
-                                ))}
-                            </View>
-
-                            {/* Rh Toggle */}
-                            {tempInfo.bloodType !== 'Chưa rõ' && (
-                                <View style={styles.rhSection}>
-                                    <Text style={styles.inputLabel}>Hệ Rh</Text>
-                                    <View style={styles.rhToggleRow}>
-                                        <TouchableOpacity
-                                            style={[styles.rhBtn, tempInfo.rh === '+' && styles.rhBtnActive]}
-                                            onPress={() => { Keyboard.dismiss(); setTimeout(() => setTempInfo({ ...tempInfo, rh: '+' }), 100); }}
-                                        >
-                                            <Text style={[styles.rhBtnText, tempInfo.rh === '+' && styles.rhBtnTextActive]}>Rh (+)</Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity
-                                            style={[styles.rhBtn, tempInfo.rh === '-' && styles.rhBtnActive]}
-                                            onPress={() => { Keyboard.dismiss(); setTimeout(() => setTempInfo({ ...tempInfo, rh: '-' }), 100); }}
-                                        >
-                                            <Text style={[styles.rhBtnText, tempInfo.rh === '-' && styles.rhBtnTextActive]}>Rh (-)</Text>
-                                        </TouchableOpacity>
-                                    </View>
-                                </View>
-                            )}
-
-                            {/* Allergies */}
-                            <Text style={styles.inputLabel}>Lưu ý Dị ứng</Text>
-                            <TextInput
-                                style={styles.textArea}
-                                value={tempInfo.allergies}
-                                onChangeText={(t) => setTempInfo({ ...tempInfo, allergies: t })}
-                                placeholder="Ví dụ: Dị ứng Penicillin, đậu phộng, hải sản..."
-                                placeholderTextColor="#9ca3af"
-                                multiline
-                                numberOfLines={3}
-                                textAlignVertical="top"
-                            />
-
-                            <View style={{ height: 40 }} />
-                        </ScrollView>
-
-                        {/* Save Button */}
-                        <View style={[styles.modalFooter, { paddingBottom: Math.max(insets.bottom, 20) }]}>
-                            <PrimaryButton
-                                title="Lưu thông tin"
-                                icon="checkmark-circle-outline"
-                                onPress={handleSaveMedicalInfo}
-                            />
-                        </View>
+            {/* Medical ID Bottom Sheet */}
+            <BottomSheet visible={isModalVisible} onClose={() => setIsModalVisible(false)} hasKeyboard>
+                    <View style={styles.modalHeader}>
+                        <TouchableOpacity onPress={() => setIsModalVisible(false)} style={styles.modalCloseBtn}>
+                            <Ionicons name="close" size={24} color="#1f2937" />
+                        </TouchableOpacity>
+                        <Text style={styles.modalTitle}>Hồ sơ Y tế</Text>
+                        <View style={{ width: 40 }} />
                     </View>
-                </KeyboardAvoidingView>
-            </Modal>
+
+                    <ScrollView
+                        style={styles.modalForm}
+                        showsVerticalScrollIndicator={false}
+                        keyboardShouldPersistTaps="handled"
+                        keyboardDismissMode="interactive"
+                    >
+                        {/* Weight & Height Row */}
+                        <View style={styles.formRow}>
+                            <View style={[styles.formField, { marginRight: 12 }]}>
+                                <Text style={styles.inputLabel}>Cân nặng</Text>
+                                <View style={styles.inputWrapper}>
+                                    <TextInput
+                                        style={styles.textInput}
+                                        value={tempInfo.weight}
+                                        onChangeText={(t) => setTempInfo({ ...tempInfo, weight: t })}
+                                        placeholder="--"
+                                        placeholderTextColor="#9ca3af"
+                                        keyboardType="numeric"
+                                    />
+                                    <Text style={styles.inputUnit}>kg</Text>
+                                </View>
+                            </View>
+                            <View style={styles.formField}>
+                                <Text style={styles.inputLabel}>Chiều cao</Text>
+                                <View style={styles.inputWrapper}>
+                                    <TextInput
+                                        style={styles.textInput}
+                                        value={tempInfo.height}
+                                        onChangeText={(t) => setTempInfo({ ...tempInfo, height: t })}
+                                        placeholder="--"
+                                        placeholderTextColor="#9ca3af"
+                                        keyboardType="numeric"
+                                    />
+                                    <Text style={styles.inputUnit}>cm</Text>
+                                </View>
+                            </View>
+                        </View>
+
+                        {/* Blood Type Chips */}
+                        <Text style={styles.inputLabel}>Nhóm máu</Text>
+                        <View style={styles.bloodChipsRow}>
+                            {BLOOD_TYPES.map(type => (
+                                <TouchableOpacity
+                                    key={type}
+                                    style={[
+                                        styles.bloodChip,
+                                        tempInfo.bloodType === type && styles.bloodChipActive
+                                    ]}
+                                    onPress={() => {
+                                        Keyboard.dismiss();
+                                        setTimeout(() => {
+                                            setTempInfo({ ...tempInfo, bloodType: type });
+                                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                        }, 100);
+                                    }}
+                                >
+                                    <Text style={[
+                                        styles.bloodChipText,
+                                        tempInfo.bloodType === type && styles.bloodChipTextActive
+                                    ]}>
+                                        {type}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+
+                        {/* Rh Toggle */}
+                        {tempInfo.bloodType !== 'Chưa rõ' && (
+                            <View style={styles.rhSection}>
+                                <Text style={styles.inputLabel}>Hệ Rh</Text>
+                                <View style={styles.rhToggleRow}>
+                                    <TouchableOpacity
+                                        style={[styles.rhBtn, tempInfo.rh === '+' && styles.rhBtnActive]}
+                                        onPress={() => { Keyboard.dismiss(); setTimeout(() => setTempInfo({ ...tempInfo, rh: '+' }), 100); }}
+                                    >
+                                        <Text style={[styles.rhBtnText, tempInfo.rh === '+' && styles.rhBtnTextActive]}>Rh (+)</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                        style={[styles.rhBtn, tempInfo.rh === '-' && styles.rhBtnActive]}
+                                        onPress={() => { Keyboard.dismiss(); setTimeout(() => setTempInfo({ ...tempInfo, rh: '-' }), 100); }}
+                                    >
+                                        <Text style={[styles.rhBtnText, tempInfo.rh === '-' && styles.rhBtnTextActive]}>Rh (-)</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                        )}
+
+                        {/* Allergies */}
+                        <Text style={styles.inputLabel}>Lưu ý Dị ứng</Text>
+                        <TextInput
+                            style={styles.textArea}
+                            value={tempInfo.allergies}
+                            onChangeText={(t) => setTempInfo({ ...tempInfo, allergies: t })}
+                            placeholder="Ví dụ: Dị ứng Penicillin, đậu phộng, hải sản..."
+                            placeholderTextColor="#9ca3af"
+                            multiline
+                            numberOfLines={3}
+                            textAlignVertical="top"
+                        />
+
+                        <View style={{ height: 40 }} />
+                    </ScrollView>
+
+                    {/* Save Button */}
+                    <View style={[styles.modalFooter, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+                        <PrimaryButton
+                            title="Lưu thông tin"
+                            icon="checkmark-circle-outline"
+                            onPress={handleSaveMedicalInfo}
+                        />
+                    </View>
+            </BottomSheet>
         </View>
     );
 }

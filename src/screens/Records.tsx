@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import {
     View, Text, FlatList, TextInput, TouchableOpacity,
-    StyleSheet, Modal, Pressable,
+    StyleSheet,
 } from 'react-native';
+import BottomSheet from '../components/BottomSheet';
 import { useMedContext } from '../context/MedContext';
 import { PrescriptionCard } from '../components/PrescriptionCard';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -193,28 +194,17 @@ export default function Records() {
                 </>
             )}
 
-            {/* ── Filter Bottom Sheet Modal ── */}
-            <Modal
-                visible={showFilterModal}
-                transparent
-                animationType="slide"
-                onRequestClose={() => setShowFilterModal(false)}
-            >
-                <Pressable style={s.modalOverlay} onPress={() => setShowFilterModal(false)}>
-                    <Pressable style={s.modalSheet} onPress={() => {}}>
-                        {/* Handle bar */}
-                        <View style={s.modalHandle} />
-
-                        {/* Modal Header */}
-                        <View style={s.modalHeader}>
-                            <Text style={s.modalTitle}>Bộ lọc</Text>
-                            <TouchableOpacity
-                                onPress={() => setShowFilterModal(false)}
-                                style={s.modalCloseBtn}
-                            >
-                                <Ionicons name="close" size={22} color="#374151" />
-                            </TouchableOpacity>
-                        </View>
+            <BottomSheet visible={showFilterModal} onClose={() => setShowFilterModal(false)} maxHeight="70%">
+                    {/* Modal Header */}
+                    <View style={s.modalHeader}>
+                        <Text style={s.modalTitle}>Bộ lọc</Text>
+                        <TouchableOpacity
+                            onPress={() => setShowFilterModal(false)}
+                            style={s.modalCloseBtn}
+                        >
+                            <Ionicons name="close" size={22} color="#374151" />
+                        </TouchableOpacity>
+                    </View>
 
                         {/* Section: Status */}
                         <View style={s.modalSection}>
@@ -298,9 +288,7 @@ export default function Records() {
                                 <Text style={s.modalApplyText}>Áp dụng</Text>
                             </TouchableOpacity>
                         </View>
-                    </Pressable>
-                </Pressable>
-            </Modal>
+            </BottomSheet>
         </View>
     );
 }
