@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
     View, Text, StyleSheet, ScrollView, TouchableOpacity,
     Switch, Modal, TextInput, KeyboardAvoidingView, Platform,
-    Pressable, ActivityIndicator
+    Pressable, ActivityIndicator, Keyboard
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -317,7 +317,7 @@ export default function Profile() {
                     behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                     style={styles.modalOverlay}
                 >
-                    <Pressable style={styles.modalBackdrop} onPress={() => setIsModalVisible(false)} />
+                    <Pressable style={styles.modalBackdrop} onPress={() => { Keyboard.dismiss(); setIsModalVisible(false); }} />
                     <View style={styles.modalContent}>
                         <View style={styles.modalHeader}>
                             <TouchableOpacity onPress={() => setIsModalVisible(false)} style={styles.modalCloseBtn}>
@@ -327,7 +327,12 @@ export default function Profile() {
                             <View style={{ width: 40 }} />
                         </View>
 
-                        <ScrollView style={styles.modalForm} showsVerticalScrollIndicator={false}>
+                        <ScrollView
+                            style={styles.modalForm}
+                            showsVerticalScrollIndicator={false}
+                            keyboardShouldPersistTaps="handled"
+                            keyboardDismissMode="interactive"
+                        >
                             {/* Weight & Height Row */}
                             <View style={styles.formRow}>
                                 <View style={[styles.formField, { marginRight: 12 }]}>
@@ -371,8 +376,11 @@ export default function Profile() {
                                             tempInfo.bloodType === type && styles.bloodChipActive
                                         ]}
                                         onPress={() => {
-                                            setTempInfo({ ...tempInfo, bloodType: type });
-                                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                            Keyboard.dismiss();
+                                            setTimeout(() => {
+                                                setTempInfo({ ...tempInfo, bloodType: type });
+                                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                            }, 100);
                                         }}
                                     >
                                         <Text style={[
@@ -392,13 +400,13 @@ export default function Profile() {
                                     <View style={styles.rhToggleRow}>
                                         <TouchableOpacity
                                             style={[styles.rhBtn, tempInfo.rh === '+' && styles.rhBtnActive]}
-                                            onPress={() => setTempInfo({ ...tempInfo, rh: '+' })}
+                                            onPress={() => { Keyboard.dismiss(); setTimeout(() => setTempInfo({ ...tempInfo, rh: '+' }), 100); }}
                                         >
                                             <Text style={[styles.rhBtnText, tempInfo.rh === '+' && styles.rhBtnTextActive]}>Rh (+)</Text>
                                         </TouchableOpacity>
                                         <TouchableOpacity
                                             style={[styles.rhBtn, tempInfo.rh === '-' && styles.rhBtnActive]}
-                                            onPress={() => setTempInfo({ ...tempInfo, rh: '-' })}
+                                            onPress={() => { Keyboard.dismiss(); setTimeout(() => setTempInfo({ ...tempInfo, rh: '-' }), 100); }}
                                         >
                                             <Text style={[styles.rhBtnText, tempInfo.rh === '-' && styles.rhBtnTextActive]}>Rh (-)</Text>
                                         </TouchableOpacity>
