@@ -55,7 +55,7 @@ export type PrescriptionStatus = 'stopped' | 'upcoming' | 'active' | 'completed'
 export interface StatusDisplay {
     status: PrescriptionStatus;
     label: string;
-    badgeVariant: 'info' | 'success' | 'warning' | 'danger' | 'default';
+    badgeVariant: 'info' | 'success' | 'warning' | 'danger' | 'default' | 'purple';
     // Legacy Tailwind classes (kept for gradual migration)
     badgeBg: string;
     badgeText: string;
@@ -71,11 +71,11 @@ export function getPrescriptionStatus(
     isRoutine: boolean,
 ): StatusDisplay {
     if (duration === 0) {
-        return { status: 'stopped', label: 'Đã dừng', badgeVariant: 'default', badgeBg: 'bg-gray-100', badgeText: 'text-gray-500' };
+        return { status: 'stopped', label: 'Đã dừng', badgeVariant: 'danger', badgeBg: 'bg-red-50', badgeText: 'text-red-600' };
     }
 
     if (isRoutine) {
-        return { status: 'active', label: 'Thuốc bổ', badgeVariant: 'success', badgeBg: 'bg-green-50', badgeText: 'text-green-600' };
+        return { status: 'active', label: 'Đang uống', badgeVariant: 'purple', badgeBg: 'bg-purple-50', badgeText: 'text-purple-600' };
     }
 
     const today = new Date();
@@ -92,7 +92,7 @@ export function getPrescriptionStatus(
         return { status: 'upcoming', label: 'Sắp tới', badgeVariant: 'warning', badgeBg: 'bg-amber-50', badgeText: 'text-amber-600' };
     }
     if (today > end) {
-        return { status: 'completed', label: 'Đã hoàn thành', badgeVariant: 'default', badgeBg: 'bg-gray-100', badgeText: 'text-gray-500' };
+        return { status: 'completed', label: 'Đã hoàn thành', badgeVariant: 'success', badgeBg: 'bg-green-50', badgeText: 'text-green-600' };
     }
     return { status: 'active', label: 'Đang điều trị', badgeVariant: 'info', badgeBg: 'bg-blue-50', badgeText: 'text-blue-600' };
 }

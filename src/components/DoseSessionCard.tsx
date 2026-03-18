@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import {
     View, Text, StyleSheet, TouchableOpacity,
     Animated, Easing, LayoutAnimation, Platform, UIManager,
@@ -7,6 +7,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import PrimaryButton from './PrimaryButton';
 import Badge from './Badge';
 import { MedicineEntry } from '../types/medicine';
+import { skipDoseLogs, undoSkipDoseLogs } from '../database/doseLogDAO';
 
 // Enable LayoutAnimation on Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -160,6 +161,7 @@ interface DoseSessionCardProps {
     confirmedIds: string[];
     onConfirmItems: (slotKey: string, ids: string[]) => void;
     onUndoItem: (slotKey: string, id?: string) => void;
+    onSkipSession?: (slotKey: string) => void;
     dateState?: 'past' | 'today' | 'future';
     isReadOnly?: boolean;
     completedAtMap?: Record<string, number>;
@@ -204,15 +206,17 @@ interface MedicineItemRowProps {
     med: MedicineEntry;
     sessionKey: string;
     isConfirmed: boolean;
+    isSkipped?: boolean;
     dateState?: 'past' | 'today' | 'future';
     isReadOnly?: boolean;
     completedAt?: number;
     showCompletedTime?: boolean;
     onConfirm: () => void;
     onUndo?: () => void;
+    onUndoSkip?: () => void;
 }
 
-const MedicineItemRow: React.FC<MedicineItemRowProps> = ({ med, sessionKey, isConfirmed, dateState = 'today', isReadOnly = false, completedAt, showCompletedTime = false, onConfirm, onUndo }: MedicineItemRowProps) => {
+const MedicineItemRow: React.FC<MedicineItemRowProps> = ({ med, sessionKey, isConfirmed, isSkipped = false, dateState = 'today', isReadOnly = false, completedAt, showCompletedTime = false, onConfirm, onUndo, onUndoSkip }: MedicineItemRowProps) => {
     // Exact time for this item in this session
     const medTime = getMedTime(med, sessionKey);
     const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -241,7 +245,7 @@ const MedicineItemRow: React.FC<MedicineItemRowProps> = ({ med, sessionKey, isCo
     const iconConfig = getMedicineIconConfig(med);
 
     return (
-        <View style={[styles.medRow, isConfirmed && styles.medRowDone]}>
+        <View style={styles.medRow}>
             <View style={styles.medRowLeft}>
                 <View style={[
                     styles.medCircle,
@@ -296,7 +300,7 @@ const MedicineItemRow: React.FC<MedicineItemRowProps> = ({ med, sessionKey, isCo
             )}
 
             {/* ── Read-Only Mode: Status Tags ── */}
-            {isReadOnly && dateState !== 'future' && (
+            {isReadOnly && dateState !== 'future' && !isSkipped && (
                 isConfirmed ? (
                     <Badge label="Đã uống" variant="success" />
                 ) : dateState === 'past' ? (
@@ -306,26 +310,48 @@ const MedicineItemRow: React.FC<MedicineItemRowProps> = ({ med, sessionKey, isCo
                 )
             )}
 
-            {/* ── Interactive Mode: Checkbox ── */}
-            {!isReadOnly && (dateState === 'today' || isConfirmed) && dateState !== 'future' ? (
-                <TouchableOpacity
-                    onPress={handleToggle}
-                    activeOpacity={0.7}
-                >
-                    <Animated.View style={[
-                        styles.checkboxCircle,
-                        isConfirmed && styles.checkboxCircleCheckedBlue,
-                        { transform: [{ scale: scaleAnim }] }
-                    ]}>
-                        {isConfirmed && <Ionicons name="checkmark" size={18} color="#ffffff" />}
-                    </Animated.View>
-                </TouchableOpacity>
+            {/* ── Interactive Mode ── */}
+            {!isReadOnly && dateState === 'today' && !isSkipped ? (
+                isConfirmed ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Badge label="Đã uống" variant="success" />
+                        {onUndo && (
+                            <TouchableOpacity onPress={onUndo} activeOpacity={0.6} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                                <Ionicons name="arrow-undo-outline" size={16} color="#9CA3AF" />
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                ) : (
+                    <TouchableOpacity
+                        onPress={handleToggle}
+                        activeOpacity={0.7}
+                    >
+                        <Animated.View style={[
+                            styles.checkboxCircle,
+                            { transform: [{ scale: scaleAnim }] }
+                        ]}>
+                            <Ionicons name="add" size={16} color="#9CA3AF" />
+                        </Animated.View>
+                    </TouchableOpacity>
+                )
             ) : null}
 
             {/* Missed Warning for Past (not confirmed, not read-only) */}
-            {!isReadOnly && dateState === 'past' && !isConfirmed && (
+            {!isReadOnly && dateState === 'past' && !isConfirmed && !isSkipped && (
                 <View style={styles.missedWarningWrap}>
                     <Ionicons name="close-circle" size={18} color="#ef4444" />
+                </View>
+            )}
+
+            {/* Skipped badge */}
+            {isSkipped && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Badge label="Đã bỏ qua" variant="default" />
+                    {!isReadOnly && dateState === 'today' && onUndoSkip && (
+                        <TouchableOpacity onPress={onUndoSkip} activeOpacity={0.6} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                            <Ionicons name="arrow-undo-outline" size={16} color="#9CA3AF" />
+                        </TouchableOpacity>
+                    )}
                 </View>
             )}
         </View>
@@ -333,7 +359,7 @@ const MedicineItemRow: React.FC<MedicineItemRowProps> = ({ med, sessionKey, isCo
 };
 
 export const DoseSessionCard = ({
-    session, isActive, confirmedIds, onConfirmItems, onUndoItem,
+    session, isActive, confirmedIds, onConfirmItems, onUndoItem, onSkipSession,
     dateState = 'today', isReadOnly = false, completedAtMap = {}, showCompletedTime = false
 }: DoseSessionCardProps) => {
     const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -353,23 +379,47 @@ export const DoseSessionCard = ({
     const progress = totalCount > 0 ? resolvedCount / totalCount : 0;
     const isFullyDone = totalCount > 0 && resolvedCount >= totalCount;
 
-    // Default to closed if fully done, opened if still active
-    const [isExpanded, setIsExpanded] = useState(!isFullyDone);
+    // ─── Missed/Overdue detection ────────────────────────────
+    const SESSION_WINDOWS: Record<string, { start: number; end: number }> = {
+        'sáng': { start: 0, end: 11 },
+        'trưa': { start: 11, end: 15 },
+        'chiều': { start: 15, end: 19 },
+        'tối': { start: 19, end: 24 },
+    };
+    const nowHour = new Date().getHours();
+    const sessionWin = SESSION_WINDOWS[session.slotKey.toLowerCase()];
+    const isSessionOver = dateState === 'today' && sessionWin
+        ? nowHour >= sessionWin.end
+        : dateState === 'past';
+    const missedCount = totalCount - confirmedCount;
 
-    // If fully done state changes externally, we might want to collapse it automatically
+    // ─── Local skipped IDs tracking (init from DB) ────────────
+    const initialSkippedIds = useMemo(() => {
+        return session.medicines
+            .filter((m: any) => m._doseLogStatus === 'SKIPPED')
+            .map(m => getDoseLogId(m));
+    }, [session.medicines]);
+    const [skippedIds, setSkippedIds] = useState<string[]>(initialSkippedIds);
+    const skippedCount = skippedIds.filter(id => validDoseLogIds.has(id)).length;
+    const isSessionClosed = totalCount > 0 && (confirmedCount + skippedCount) >= totalCount;
+    const isMissed = isSessionOver && !isFullyDone && !isSessionClosed && totalCount > 0;
+
+    // Default to closed if fully done or session closed, opened if still active
+    const [isExpanded, setIsExpanded] = useState(!isFullyDone && !isSessionClosed);
+
+    // If fully done or session closed, collapse automatically
     useEffect(() => {
-        if (isFullyDone) {
-            // Optional: collapse after short delay if just finished
+        if (isFullyDone || isSessionClosed) {
             const timer = setTimeout(() => setIsExpanded(false), 600);
             return () => clearTimeout(timer);
         } else {
             setIsExpanded(true);
         }
-    }, [isFullyDone]);
+    }, [isFullyDone, isSessionClosed]);
 
     // ─── Pulse animation for active sessions ─────────────────
     useEffect(() => {
-        if (isActive && !isFullyDone) {
+        if (isActive && !isFullyDone && !isMissed) {
             Animated.loop(
                 Animated.sequence([
                     Animated.timing(pulseAnim, {
@@ -389,7 +439,7 @@ export const DoseSessionCard = ({
         } else {
             pulseAnim.setValue(1);
         }
-    }, [isActive, isFullyDone, pulseAnim]);
+    }, [isActive, isFullyDone, isMissed, pulseAnim]);
 
     // ─── Confirm single item ─────────────────────────────────
     const handleConfirmOne = useCallback((medId: string) => {
@@ -406,39 +456,97 @@ export const DoseSessionCard = ({
         }
     }, [session, confirmedIds, onConfirmItems]);
 
-    // ─── Collapsed Completed View ────────────────────────────
-    if (isFullyDone && !isExpanded) {
+    // ─── Skip session (local tracking) ────────────────────────
+    const handleSkipLocal = useCallback(() => {
+        const remainingDoseLogIds = session.medicines
+            .filter(m => !confirmedIds.includes(getDoseLogId(m)))
+            .map(m => getDoseLogId(m));
+        setSkippedIds(prev => [...prev, ...remainingDoseLogIds]);
+        // Persist to DB
+        skipDoseLogs(remainingDoseLogIds).catch(console.error);
+        if (onSkipSession) {
+            onSkipSession(session.slotKey);
+        }
+    }, [session, confirmedIds, onSkipSession]);
+
+    // ─── Undo skip for a single item ──────────────────────────
+    const handleUndoSkipItem = useCallback((medId: string) => {
+        setSkippedIds(prev => prev.filter(id => id !== medId));
+        // Persist to DB
+        undoSkipDoseLogs([medId]).catch(console.error);
+    }, []);
+
+    // ─── Collapsed View ──────────────────────────────────────
+    // Detect late completion: any confirmed med has timestamp after session end
+    const isTakenLate = (() => {
+        if (!isFullyDone || !sessionWin) return false;
+        // Check completedAtMap timestamps
+        const endHour = sessionWin.end;
+        for (const med of session.medicines) {
+            const doseLogId = getDoseLogId(med);
+            const ts = completedAtMap[doseLogId];
+            if (ts) {
+                const completedHour = new Date(ts).getHours();
+                if (completedHour >= endHour) return true;
+            }
+        }
+        // Also treat as late if session was already over (past window)
+        return isSessionOver;
+    })();
+
+    if ((isFullyDone || isSessionClosed) && !isExpanded) {
+        // ── State-driven collapsed config ──
+        let collapsedSubtitle = 'Đã hoàn thành';
+        let collapsedSubColor = '#16A34A';
+
+        if (isSessionClosed && skippedCount > 0) {
+            collapsedSubtitle = confirmedCount > 0
+                ? `Đã uống ${confirmedCount}/${totalCount} liều • Bỏ qua phần còn lại`
+                : 'Đã bỏ qua cữ này';
+            collapsedSubColor = '#6B7280';
+        } else if (isTakenLate) {
+            collapsedSubtitle = 'Đã uống bù';
+            collapsedSubColor = '#0D9488';
+        }
+
         return (
             <TouchableOpacity
                 activeOpacity={0.8}
                 onPress={() => setIsExpanded(true)}
-                style={[styles.card, styles.cardDone, { paddingVertical: 14 }]}
+                style={[styles.card, styles.cardDone]}
             >
                 <View style={styles.headerRow}>
-                    <View style={styles.doneIconWrap}>
-                        <Ionicons name="checkmark-circle" size={24} color="#16a34a" />
+                    <View style={[styles.slotIconWrap, { backgroundColor: `${session.iconColor}18` }]}>
+                        <MaterialCommunityIcons name={session.icon as any} size={22} color={session.iconColor} />
                     </View>
                     <View style={{ flex: 1 }}>
-                        <Text style={[styles.headerSessionTitle, { color: '#166534', fontSize: 18 }]}>
-                            Đã hoàn thành {session.label}
+                        <Text style={styles.collapsedTitle}>
+                            {session.label}
+                        </Text>
+                        <Text style={[styles.collapsedSubtitle, { color: collapsedSubColor }]}>
+                            {collapsedSubtitle}
                         </Text>
                     </View>
-                    <Ionicons name="chevron-down" size={20} color="#15803d" />
+                    <Ionicons name="chevron-down" size={20} color="#9CA3AF" />
                 </View>
             </TouchableOpacity>
         );
     }
 
     // ─── CTA config ──────────────────────────────────────────
-    const ctaLabel = confirmedCount === 0
-        ? 'Xác nhận uống tất cả'
-        : `Xác nhận phần còn lại (${remainingCount})`;
-    const ctaVariant = confirmedCount === 0 ? 'solid' as const : 'outline' as const;
+    const ctaLabel = isMissed
+        ? `Uống bù phần còn lại (${remainingCount})`
+        : confirmedCount === 0
+            ? 'Xác nhận uống tất cả'
+            : `Xác nhận phần còn lại (${remainingCount})`;
+    const ctaVariant = confirmedCount === 0 && !isMissed ? 'solid' as const : 'outline' as const;
 
     return (
         <Animated.View style={[
             styles.card,
-            isActive && styles.cardActive,
+            isActive && !isMissed && !isSessionClosed && styles.cardActive,
+            isMissed && styles.cardMissed,
+            isSessionClosed && styles.cardDone,
             { transform: [{ scale: pulseAnim }] },
         ]}>
 
@@ -451,12 +559,18 @@ export const DoseSessionCard = ({
                     <Text style={styles.headerSessionTitle}>
                         {session.label}
                     </Text>
-                    <Text style={styles.headerSubtitle}>
-                        {totalCount} loại thuốc
-                    </Text>
+                    {isMissed ? (
+                        <Text style={{ fontSize: 13, fontWeight: '600', color: '#d97706', marginTop: 1 }}>
+                            Thiếu {missedCount} liều
+                        </Text>
+                    ) : (
+                        <Text style={styles.headerSubtitle}>
+                            {totalCount} loại thuốc
+                        </Text>
+                    )}
                 </View>
 
-                {isFullyDone ? (
+                {isFullyDone || isSessionClosed ? (
                     <TouchableOpacity
                         onPress={() => setIsExpanded(false)}
                         style={{ padding: 4 }}
@@ -494,12 +608,14 @@ export const DoseSessionCard = ({
                                         med={{...med, id: doseLogId}}
                                         sessionKey={session.slotKey}
                                         isConfirmed={isConfirmed}
+                                        isSkipped={skippedIds.includes(doseLogId)}
                                         dateState={dateState}
-                                        isReadOnly={isReadOnly}
+                                        isReadOnly={isReadOnly || (isSessionClosed && dateState !== 'today')}
                                         completedAt={completedAtMap[doseLogId]}
                                         showCompletedTime={showCompletedTime}
                                         onConfirm={() => handleConfirmOne(doseLogId)}
                                         onUndo={() => onUndoItem(session.slotKey, doseLogId)}
+                                        onUndoSkip={() => handleUndoSkipItem(doseLogId)}
                                     />
                                 );
                             })}
@@ -517,14 +633,42 @@ export const DoseSessionCard = ({
                 </View>
             )}
 
-            {!isReadOnly && dateState === 'today' && remainingCount > 0 && !isFullyDone && (
-                <PrimaryButton
-                    title={ctaLabel}
-                    variant={ctaVariant}
-                    onPress={handleConfirmAll}
-                    icon="checkmark-done-outline"
-                    style={{ marginTop: 8 }}
-                />
+            {!isReadOnly && dateState !== 'future' && remainingCount > 0 && !isFullyDone && !isSessionClosed && (
+                isMissed ? (
+                    <View style={{ marginTop: 12, gap: 8 }}>
+                        <PrimaryButton
+                            title={ctaLabel}
+                            variant="solid"
+                            onPress={handleConfirmAll}
+                            icon="timer-outline"
+                            style={{ backgroundColor: '#f59e0b', borderColor: '#f59e0b' }}
+                        />
+                        <TouchableOpacity
+                            onPress={handleSkipLocal}
+                            activeOpacity={0.6}
+                            style={{
+                                alignItems: 'center',
+                                paddingVertical: 10,
+                            }}
+                        >
+                            <Text style={{
+                                fontSize: 14,
+                                fontWeight: '500',
+                                color: '#6B7280',
+                            }}>
+                                Bỏ cữ này
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+                ) : (
+                    <PrimaryButton
+                        title={ctaLabel}
+                        variant={ctaVariant}
+                        onPress={handleConfirmAll}
+                        icon="checkmark-done-outline"
+                        style={{ marginTop: 8 }}
+                    />
+                )
             )}
         </Animated.View>
     );
@@ -536,27 +680,26 @@ const styles = StyleSheet.create({
     card: {
         backgroundColor: '#ffffff',
         borderRadius: 18,
-        paddingTop: 14,
-        paddingHorizontal: 18,
-        paddingBottom: 18,
+        padding: 18,
         marginBottom: 12,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.05,
         shadowRadius: 8,
         elevation: 2,
-        borderWidth: 1,
-        borderColor: '#f3f4f6',
+        borderWidth: 1.5,
+        borderColor: '#D1D5DB',
         position: 'relative',
         overflow: 'hidden',
     },
     cardActive: {
-        borderColor: '#93c5fd',
-        borderWidth: 1.5,
-        backgroundColor: '#fafcff',
+        borderColor: '#60A5FA',
     },
     cardDone: {
-        backgroundColor: '#ffffff',
+        borderColor: '#E5E7EB',
+    },
+    cardMissed: {
+        borderColor: '#F59E0B',
     },
     doneIconWrap: {
         width: 36,
@@ -564,6 +707,16 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         marginRight: 12,
+    },
+    collapsedTitle: {
+        fontSize: 18,
+        fontWeight: '700' as const,
+        color: '#111827',
+    },
+    collapsedSubtitle: {
+        fontSize: 14,
+        fontWeight: '400' as const,
+        marginTop: 2,
     },
     // Progress bar (top edge)
     progressBarTop: {
@@ -578,7 +731,6 @@ const styles = StyleSheet.create({
     headerRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginTop: 12,
     },
     slotIconWrap: {
         width: 40,
@@ -589,10 +741,9 @@ const styles = StyleSheet.create({
         marginRight: 12,
     },
     headerSessionTitle: {
-        fontSize: 20,
-        fontWeight: '800',
-        color: '#1f2937',
-        letterSpacing: -0.3,
+        fontSize: 18,
+        fontWeight: '700',
+        color: '#111827',
     },
     headerSubtitle: {
         fontSize: 13,
@@ -665,10 +816,6 @@ const styles = StyleSheet.create({
         paddingHorizontal: 8,
     },
     medRowDone: {
-        backgroundColor: 'rgba(22, 163, 74, 0.04)', // Very subtle green tint
-        borderRadius: 12,
-        marginHorizontal: -8,
-        paddingHorizontal: 16,
     },
     medRowLeft: {
         flex: 1,

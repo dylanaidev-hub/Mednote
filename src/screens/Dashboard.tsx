@@ -80,6 +80,7 @@ export default function Dashboard() {
                 source: (row.med_type === 'routine' ? 'routine' : 'prescription') as 'routine' | 'prescription',
                 prescriptionId: row.prescription_id || undefined,
                 _doseLogId: row.dose_log_id,
+                _doseLogStatus: row.status,
             } as any;
         });
         return groupIntoDoseSessions(flatMedicines);

@@ -8,13 +8,15 @@
  *  3. Vertical Timeline (Sáng/Trưa/Chiều/Tối) with past/active/future states
  */
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
     View, Text, StyleSheet, ScrollView, TouchableOpacity,
     Animated, Easing,
 } from 'react-native';
-import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import TimelineCard from '../components/TimelineCard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { useMedContext, Prescription, MedicationStatus } from '../context/MedContext';
 import { MedicineEntry } from '../types/medicine';
 import { useToast } from '../context/ToastContext';
@@ -258,7 +260,7 @@ const ProgressRing = ({ progress, size, strokeWidth, color, bg }: RingProps) => 
 
 // ─── Timeline Node ───────────────────────────────────────────────
 
-type NodeState = 'done' | 'active' | 'upcoming' | 'future';
+type NodeState = 'done' | 'done_late' | 'active' | 'upcoming' | 'future' | 'incomplete';
 
 const TimelineNode = ({ state }: { state: NodeState }) => {
     const pulseAnim = useRef(new Animated.Value(0)).current;
@@ -291,6 +293,13 @@ const TimelineNode = ({ state }: { state: NodeState }) => {
             </View>
         );
     }
+    if (state === 'done_late') {
+        return (
+            <View style={[tl.node, { backgroundColor: '#0D9488' }]}>
+                <Ionicons name="checkmark" size={12} color="#ffffff" />
+            </View>
+        );
+    }
     if (state === 'active') {
         return (
             <View style={[tl.node, tl.nodeActiveHalo]}>
@@ -316,6 +325,9 @@ const TimelineNode = ({ state }: { state: NodeState }) => {
                 <View style={tl.nodeActiveInner} />
             </View>
         );
+    }
+    if (state === 'incomplete') {
+        return <View style={[tl.node, { backgroundColor: '#f59e0b' }]} />;
     }
     // upcoming / future
     return <View style={[tl.node, tl.nodeDefault]} />;
@@ -346,6 +358,18 @@ export default function Schedule() {
         };
         loadDoseSessions();
     }, [selectedDate, records, confirmedSlots]);
+
+    // ── Re-fetch when tab gains focus (sync with Dashboard changes) ──
+    useFocusEffect(
+        useCallback(() => {
+            const reload = async () => {
+                const dateStr = formatLocalDate(selectedDate);
+                const rows = await sqlGetDoseSessionsForDate(dateStr);
+                setDoseSessions(rows);
+            };
+            reload();
+        }, [selectedDate])
+    );
 
     // ── Group DB rows by session → time sub-groups ────────
     const { sessions, completedAtMap } = useMemo(
@@ -402,21 +426,42 @@ export default function Schedule() {
         const validIds = new Set(sess.medicines.map(m => m.id));
         const confirmed = (confirmedSlots[sess.slotKey] || []).filter((id: string) => validIds.has(id));
 
-        if (confirmed.length >= sess.medicines.length) return 'done';
-        if (isPast(selectedDate)) return 'done'; // past = treat as done visually
-
-        const nowHour = now.getHours();
         const windows: Record<string, { start: number, end: number }> = {
             'sáng': { start: 0, end: 11 },
             'trưa': { start: 11, end: 15 },
             'chiều': { start: 15, end: 19 },
             'tối': { start: 19, end: 24 },
         };
-
+        const nowHour = now.getHours();
         const win = windows[sess.slotKey.toLowerCase()];
+
+        // All meds confirmed → check if on-time or late
+        if (confirmed.length >= sess.medicines.length) {
+            if (win) {
+                // Check timestamps: any med completed after session end?
+                for (const med of sess.medicines) {
+                    const ts = completedAtMap[med.id];
+                    if (ts && new Date(ts).getHours() >= win.end) return 'done_late';
+                }
+                // Or session is already over (today) → late
+                if (nowHour >= win.end && !isPast(selectedDate)) return 'done_late';
+            }
+            // Past dates: check timestamps too
+            if (isPast(selectedDate) && win) {
+                for (const med of sess.medicines) {
+                    const ts = completedAtMap[med.id];
+                    if (ts && new Date(ts).getHours() >= win.end) return 'done_late';
+                }
+            }
+            return 'done';
+        }
+
+        // Past dates: incomplete if not all confirmed
+        if (isPast(selectedDate)) return 'incomplete';
+
         if (win) {
             if (nowHour >= win.start && nowHour < win.end) return 'active';
-            if (nowHour >= win.end) return 'done';
+            if (nowHour >= win.end) return 'incomplete';
             return 'upcoming';
         }
         return 'upcoming';
@@ -429,6 +474,11 @@ export default function Schedule() {
             return row?.status === 'COMPLETED';
         }
         return (confirmedSlots[sess.slotKey] || []).includes(medId);
+    };
+
+    const isMedSkipped = (sess: DoseSession, medId: string): boolean => {
+        const row = doseSessions.find(r => r.dose_log_id === medId);
+        return row?.status === 'SKIPPED';
     };
 
     // ── Week label ────────────────────────────────────────────
@@ -559,6 +609,8 @@ export default function Schedule() {
                             const nodeState = getSessionNodeState(sess);
                             const isActive = nodeState === 'active';
                             const isDone = nodeState === 'done';
+                            const isDoneLate = nodeState === 'done_late';
+                            const isIncomplete = nodeState === 'incomplete';
                             const isLast = idx === sessions.length - 1;
                             const slotDisplay = SLOT_DISPLAY[sess.slotKey.toLowerCase()] || SLOT_DISPLAY['sáng'];
 
@@ -574,125 +626,20 @@ export default function Schedule() {
                                             <View style={[
                                                 tl.line,
                                                 isDone && tl.lineDone,
+                                                isDoneLate && tl.lineDone,
                                                 isActive && tl.lineActive,
                                             ]} />
                                         )}
                                     </View>
 
                                     {/* Right: timeline card */}
-                                    <View style={[
-                                        tl.card,
-                                        isDone && tl.cardDone,
-                                        isActive && tl.cardActive,
-                                    ]}>
-                                        {/* Time groups — each with full header + medicine list */}
-                                        {sess.timeGroups.map((tg: TimeGroup, tgIdx: number) => {
-                                            const tgConfirmed = tg.medicines.filter((m: MedicineEntry) => isMedConfirmed(sess, m.id)).length;
-                                            return (
-                                                <View key={tg.time}>
-                                                    {/* Divider between time groups */}
-                                                    {tgIdx > 0 && (
-                                                        <View style={{ height: 1, backgroundColor: '#e5e7eb', marginVertical: 14 }} />
-                                                    )}
-                                                    {/* Full header per time group */}
-                                                    <View style={[tl.cardHeader, { marginBottom: 10 }]}>
-                                                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                                                            <MaterialCommunityIcons
-                                                                name={sess.icon as any}
-                                                                size={18}
-                                                                color={isActive ? '#3b82f6' : sess.iconColor}
-                                                            />
-                                                            <Text style={[
-                                                                tl.cardTitle,
-                                                                isActive && tl.cardTitleActive,
-                                                                isDone && tl.cardTitleDone,
-                                                            ]}>
-                                                                {sess.label} — {tg.time}
-                                                            </Text>
-                                                        </View>
-                                                        <Text style={[
-                                                            tl.cardCount,
-                                                            isActive && tl.cardCountActive,
-                                                            isDone && tl.cardCountDone,
-                                                        ]}>
-                                                            {isDone ? `${tgConfirmed}/${tg.medicines.length} ✓` : `${tg.medicines.length} thuốc`}
-                                                        </Text>
-                                                    </View>
-                                                    {/* Medicine list for this time */}
-                                                    <View style={tl.medList}>
-                                                    {tg.medicines.map((med: MedicineEntry) => {
-                                                const confirmed = isMedConfirmed(sess, med.id);
-                                                const takenTs = completedAtMap[med.id];
-                                                const takenTimeStr = takenTs
-                                                    ? new Date(takenTs).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', hour12: false })
-                                                    : '';
-                                                return (
-                                                    <View key={med.id} style={tl.medRow}>
-                                                        <View style={[
-                                                            tl.medBullet,
-                                                            isActive && !confirmed && tl.medBulletActive,
-                                                            confirmed && tl.medBulletDone,
-                                                        ]} />
-                                                        <View style={{ flex: 1 }}>
-                                                            <Text style={[
-                                                                tl.medName,
-                                                                isActive && !confirmed && tl.medNameActive,
-                                                                (isDone && !confirmed) && tl.medNameDone,
-                                                                confirmed && tl.medNameTaken,
-                                                            ]}>
-                                                                {med.name}
-                                                                <Text style={[
-                                                                    tl.medDose,
-                                                                    isActive && !confirmed && tl.medDoseActive,
-                                                                    (isDone && !confirmed) && tl.medDoseDone,
-                                                                    confirmed && tl.medDoseTaken,
-                                                                ]}>
-                                                                    {' '}({med.quantity} {med.unit})
-                                                                </Text>
-                                                            </Text>
-                                                        </View>
-                                                        {confirmed && takenTimeStr ? (
-                                                            <View style={tl.takenBadge}>
-                                                                <Feather name="check" size={12} color="#166534" />
-                                                                <Text style={tl.takenBadgeText}>{takenTimeStr}</Text>
-                                                            </View>
-                                                        ) : (
-                                                            med.mealTiming && med.mealTiming !== 'Tùy ý' && (
-                                                                <View style={[
-                                                                    tl.mealBadge,
-                                                                    isActive && tl.mealBadgeActive,
-                                                                ]}>
-                                                                    <Text style={[
-                                                                        tl.mealBadgeText,
-                                                                        isActive && tl.mealBadgeTextActive,
-                                                                    ]}>
-                                                                        {med.mealTiming}
-                                                                    </Text>
-                                                                </View>
-                                                            )
-                                                        )}
-                                                    </View>
-                                                );
-                                            })}
-                                                    </View>
-                                                </View>
-                                            );
-                                        })}
-
-                                        {/* Status footer */}
-                                        {isDone && (
-                                            <View style={tl.statusFooter}>
-                                                <Ionicons name="checkmark-circle" size={14} color="#16a34a" />
-                                                <Text style={tl.statusDoneText}>Đã hoàn thành</Text>
-                                            </View>
-                                        )}
-                                        {isActive && (
-                                            <View style={tl.statusFooter}>
-                                                <Ionicons name="time-outline" size={14} color="#2563eb" />
-                                                <Text style={tl.statusActiveText}>Đang trong khung giờ</Text>
-                                            </View>
-                                        )}
-                                    </View>
+                                    <TimelineCard
+                                        session={sess}
+                                        status={nodeState}
+                                        completedAtMap={completedAtMap}
+                                        isMedConfirmed={isMedConfirmed}
+                                        isMedSkipped={isMedSkipped}
+                                    />
                                 </View>
                             );
                         })}
@@ -762,174 +709,7 @@ const tl = StyleSheet.create({
     lineActive: {
         backgroundColor: '#93c5fd',
     },
-    // ── Card ──
-    card: {
-        flex: 1,
-        backgroundColor: '#ffffff',
-        borderRadius: 16,
-        borderWidth: 1,
-        borderColor: '#e5e7eb',
-        padding: 14,
-        marginLeft: 10,
-        marginBottom: 12,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.04,
-        shadowRadius: 4,
-        elevation: 1,
-    },
-    cardDone: {
-        backgroundColor: '#ffffff',
-        borderColor: '#d1d5db',
-        opacity: 0.65,
-    },
-    cardActive: {
-        backgroundColor: '#EFF6FF',
-        borderColor: '#BFDBFE',
-        borderWidth: 1,
-        opacity: 1,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 8,
-        elevation: 2,
-    },
-    cardHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 10,
-    },
-    cardTitle: {
-        fontSize: 15,
-        fontWeight: '700',
-        color: '#1f2937',
-    },
-    cardTitleActive: {
-        color: '#111827',
-    },
-    cardTitleDone: {
-        color: '#6b7280',
-    },
-    cardCount: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: '#9ca3af',
-    },
-    cardCountActive: {
-        color: '#6b7280',
-    },
-    cardCountDone: {
-        color: '#9ca3af',
-    },
-    // ── Medicine list ──
-    timeSubHeader: {
-        fontSize: 12,
-        fontWeight: '700',
-        color: '#4b5563',
-        marginBottom: 6,
-    },
-    medList: {
-        gap: 8,
-    },
-    medRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-    },
-    medBullet: {
-        width: 6,
-        height: 6,
-        borderRadius: 3,
-        backgroundColor: '#93c5fd',
-        flexShrink: 0,
-    },
-    medBulletActive: {
-        backgroundColor: '#9ca3af',
-    },
-    medBulletDone: {
-        backgroundColor: '#86efac',
-    },
-    medName: {
-        fontSize: 14,
-        fontWeight: '400',
-        color: '#111827',
-    },
-    medNameActive: {
-        color: '#1f2937',
-    },
-    medNameDone: {
-        color: '#6b7280',
-    },
-    medDose: {
-        fontSize: 12,
-        fontWeight: '400',
-        color: '#6b7280',
-    },
-    medDoseActive: {
-        color: '#6b7280',
-    },
-    medDoseDone: {
-        color: '#9ca3af',
-    },
-    medNameTaken: {
-        color: '#9ca3af',
-    },
-    medDoseTaken: {
-        color: '#d1d5db',
-    },
-    takenBadge: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-        backgroundColor: '#dcfce7',
-        paddingHorizontal: 8,
-        paddingVertical: 3,
-        borderRadius: 8,
-    },
-    takenBadgeText: {
-        fontSize: 10,
-        fontWeight: '700',
-        color: '#166534',
-    },
-    // ── Meal badge ──
-    mealBadge: {
-        backgroundColor: '#f3f4f6',
-        paddingHorizontal: 8,
-        paddingVertical: 3,
-        borderRadius: 8,
-    },
-    mealBadgeActive: {
-        backgroundColor: '#f3f4f6',
-    },
-    mealBadgeText: {
-        fontSize: 10,
-        fontWeight: '600',
-        color: '#6b7280',
-    },
-    mealBadgeTextActive: {
-        color: '#374151',
-    },
-    // ── Status footer ──
-    statusFooter: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 5,
-        marginTop: 10,
-        paddingTop: 8,
-        borderTopWidth: 1,
-        borderTopColor: '#f3f4f6',
-    },
-    statusDoneText: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: '#16a34a',
-    },
-    statusActiveText: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: '#2563eb',
-    },
+    // ── Card styles moved to TimelineCard.tsx ──
 });
 
 // ─── General Styles ──────────────────────────────────────────────

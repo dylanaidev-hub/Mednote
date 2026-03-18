@@ -76,11 +76,12 @@ export default function Records() {
             if (statusFilter !== 'all' && checkRecordStatus(record) !== statusFilter) return false;
             if (typeFilter !== 'all' && checkRecordType(record) !== typeFilter) return false;
             if (normalizedQuery) {
+                const recordNameMatch = removeVietnameseTones(record.recordTitle || '').includes(normalizedQuery);
                 const hospitalMatch = removeVietnameseTones(record.hospital || '').includes(normalizedQuery);
                 const medMatch = record.medicines.some(m =>
                     removeVietnameseTones(m.name || '').includes(normalizedQuery)
                 );
-                if (!hospitalMatch && !medMatch) return false;
+                if (!recordNameMatch && !hospitalMatch && !medMatch) return false;
             }
             return true;
         });
@@ -123,7 +124,7 @@ export default function Records() {
                         <Ionicons name="search-outline" size={18} color="#9ca3af" />
                         <TextInput
                             style={s.searchInput}
-                            placeholder="Tìm theo bệnh viện, thuốc..."
+                            placeholder="Tìm theo bệnh án, bệnh viện, thuốc..."
                             placeholderTextColor="#9ca3af"
                             value={searchQuery}
                             onChangeText={setSearchQuery}
@@ -195,6 +196,7 @@ export default function Records() {
             )}
 
             <BottomSheet visible={showFilterModal} onClose={() => setShowFilterModal(false)} maxHeight="70%">
+                <View style={{ paddingHorizontal: 20 }}>
                     {/* Modal Header */}
                     <View style={s.modalHeader}>
                         <Text style={s.modalTitle}>Bộ lọc</Text>
@@ -288,6 +290,7 @@ export default function Records() {
                                 <Text style={s.modalApplyText}>Áp dụng</Text>
                             </TouchableOpacity>
                         </View>
+                </View>
             </BottomSheet>
         </View>
     );
@@ -457,6 +460,7 @@ const s = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'space-between',
         paddingVertical: 12,
+        marginBottom: 24,
         borderBottomWidth: 1,
         borderBottomColor: '#f3f4f6',
     },
@@ -473,7 +477,7 @@ const s = StyleSheet.create({
 
     // Modal sections
     modalSection: {
-        marginTop: 20,
+        marginBottom: 24,
     },
     modalSectionLabel: {
         fontSize: 11,
@@ -481,7 +485,7 @@ const s = StyleSheet.create({
         color: '#9ca3af',
         textTransform: 'uppercase',
         letterSpacing: 0.5,
-        marginBottom: 10,
+        marginBottom: 12,
     },
     modalChipGrid: {
         flexDirection: 'row',
@@ -543,7 +547,10 @@ const s = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 12,
-        marginTop: 28,
+        paddingTop: 16,
+        marginTop: 4,
+        borderTopWidth: 1,
+        borderTopColor: '#F3F4F6',
     },
     modalResetBtn: {
         flex: 1,

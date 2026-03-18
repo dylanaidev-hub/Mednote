@@ -4,10 +4,11 @@ import { View, Text, StyleSheet, ViewStyle } from 'react-native';
 // ─── Variant Color Map ───────────────────────────────────────────
 const VARIANTS = {
     info:    { bg: '#EFF6FF', text: '#2563EB' },   // blue
-    success: { bg: '#ECFDF5', text: '#059669' },   // green
-    warning: { bg: '#FFFBEB', text: '#D97706' },   // amber
-    danger:  { bg: '#FEF2F2', text: '#DC2626' },   // red
+    success: { bg: '#DCFCE7', text: '#16A34A' },   // green
+    warning: { bg: '#FEF3C7', text: '#D97706' },   // amber
+    danger:  { bg: '#FEE2E2', text: '#DC2626' },   // red
     default: { bg: '#F3F4F6', text: '#6B7280' },   // gray
+    purple:  { bg: '#F3E8FF', text: '#9333EA' },   // purple
 } as const;
 
 export type BadgeVariant = keyof typeof VARIANTS;

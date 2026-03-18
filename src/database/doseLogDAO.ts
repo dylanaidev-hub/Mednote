@@ -616,6 +616,32 @@ export async function undoConfirmMedicines(slotKey: string, doseLogIds: string[]
     }
 }
 
+/**
+ * Mark specific dose_logs as SKIPPED (user-initiated skip).
+ */
+export async function skipDoseLogs(doseLogIds: string[]): Promise<void> {
+    if (doseLogIds.length === 0) return;
+    const db = await getDB();
+    const idList = doseLogIds.map(id => `'${esc(id)}'`).join(',');
+    await db.execAsync(
+        `UPDATE dose_logs SET status = 'SKIPPED', completed_at = NULL
+         WHERE id IN (${idList})`
+    );
+}
+
+/**
+ * Undo skip: revert dose_logs from SKIPPED back to PENDING.
+ */
+export async function undoSkipDoseLogs(doseLogIds: string[]): Promise<void> {
+    if (doseLogIds.length === 0) return;
+    const db = await getDB();
+    const idList = doseLogIds.map(id => `'${esc(id)}'`).join(',');
+    await db.execAsync(
+        `UPDATE dose_logs SET status = 'PENDING', completed_at = NULL
+         WHERE id IN (${idList})`
+    );
+}
+
 // ─── QUERY: WEEKLY PROGRESS ──────────────────────────────────────
 
 export async function getWeeklyProgress(

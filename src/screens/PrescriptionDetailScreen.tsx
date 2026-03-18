@@ -9,6 +9,7 @@ import PrimaryButton from '../components/PrimaryButton';
 import Badge from '../components/Badge';
 import MedicineDetailCard from '../components/MedicineDetailCard';
 import { formatLocalDate, getPrescriptionStatus } from '../utils/dateUtils';
+import { useToast } from '../context/ToastContext';
 import { getWeekDays, getMotivationalText } from '../services/doseLogService';
 import {
     getWeeklyProgressFromDB,
@@ -20,9 +21,10 @@ import { DayProgress } from '../types/schema';
 export default function PrescriptionDetailScreen() {
     const route = useRoute<any>();
     const navigation = useNavigation<any>();
-    const { records, archivePrescription } = useMedContext();
+    const { records, archivePrescription, updatePrescription } = useMedContext();
     const { prescriptionId } = route.params;
     const insets = useSafeAreaInsets();
+    const { showToast } = useToast();
 
     const prescription = records.find(r => r.id === prescriptionId);
 
@@ -191,8 +193,8 @@ export default function PrescriptionDetailScreen() {
 
 
 
-                    {/* 3. Status & Progress Card - Consolidated with Divider (Non-routine) */}
-                    {!isRoutine && (
+                    {/* 3. Status & Progress Card - Hidden */}
+                    {!isRoutine && false && (
                         <View
                             className="bg-white p-5 rounded-[24px] flex-row items-center"
                             style={[{ borderColor: GRAY_100, borderWidth: 1 }, LIGHT_SHADOW]}
@@ -208,7 +210,7 @@ export default function PrescriptionDetailScreen() {
                             <View className="flex-1 items-center justify-center">
                                 <Ionicons name="calendar-outline" size={26} color={PRIMARY_BLUE} />
                                 <Text className="text-[16px] font-black mt-1" style={{ color: NAVY_TEXT }}>
-                                    Ngày {Math.floor((now.getTime() - startDate.getTime()) / (1000 * 3600 * 24)) + 1}/{prescription.duration}
+                                    Ngày {Math.floor((now.getTime() - startDate.getTime()) / (1000 * 3600 * 24)) + 1}/{prescription?.duration}
                                 </Text>
                                 <Text className="text-[12px] font-bold uppercase tracking-[0.5px]" style={{ color: GRAY_500 }}>Tiến độ</Text>
                             </View>
@@ -369,6 +371,36 @@ export default function PrescriptionDetailScreen() {
                                 {isRoutine ? 'Dừng uống thuốc này' : 'Kết thúc đợt điều trị'}
                             </Text>
                         </TouchableOpacity>
+                    )}
+
+                    {rxStatus.status === 'stopped' && (
+                        <PrimaryButton
+                            title="Tiếp tục uống"
+                            variant="outline"
+                            icon="refresh-outline"
+                            onPress={() => {
+                                Alert.alert(
+                                    'Tiếp tục uống thuốc?',
+                                    'Đơn thuốc sẽ được khôi phục và lịch nhắc nhở sẽ hoạt động trở lại.',
+                                    [
+                                        { text: 'Hủy bỏ', style: 'cancel' },
+                                        {
+                                            text: 'Tiếp tục uống',
+                                            onPress: async () => {
+                                                const restoredDuration = isRoutine ? 999 : 30;
+                                                await updatePrescription({
+                                                    ...prescription,
+                                                    duration: restoredDuration,
+                                                    date: formatLocalDate(new Date()),
+                                                });
+                                                showToast({ message: '✅ Đã khôi phục đơn thuốc!' });
+                                                navigation.goBack();
+                                            },
+                                        },
+                                    ]
+                                );
+                            }}
+                        />
                     )}
                 </View>
             </ScrollView>
