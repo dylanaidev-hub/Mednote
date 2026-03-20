@@ -13,6 +13,7 @@ import { useMedContext } from '../context/MedContext';
 import { useToast } from '../context/ToastContext';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useMidnightRefresh } from '../hooks/useMidnightRefresh';
+import { useCurrentTime } from '../hooks/useCurrentTime';
 import {
     fetchWeather,
     getStorageWarning,
@@ -62,6 +63,24 @@ export default function Dashboard() {
         loadTodayDoses();
     }, [records, confirmedMedsToday, isLoading]);
 
+    // ─── Re-fetch on app resume from background ──────────
+    useEffect(() => {
+        const sub = AppState.addEventListener('change', (nextState) => {
+            if (nextState === 'active' && !isLoading) {
+                const reload = async () => {
+                    const todayStr = formatLocalDate(new Date());
+                    const rows = await sqlGetDoseSessionsForDate(todayStr);
+                    setTodayDoseRows(rows);
+                };
+                reload();
+            }
+        });
+        return () => sub.remove();
+    }, [isLoading]);
+
+    // ─── Reactive current time (re-renders every 60s + on resume) ──
+    const currentTime = useCurrentTime();
+
     // ─── Convert flat rows to MedicineEntry[] + DoseSession[] ─
     const doseSessions = useMemo(() => {
         // Each DoseSessionRow = 1 dose_log = 1 unique MedicineEntry
@@ -110,11 +129,11 @@ export default function Dashboard() {
         }, [checkAndRefresh])
     );
 
-    // ─── Update Active Session based on completion logic ──────
+    // ─── Update Active Session based on completion logic + time ──
     useEffect(() => {
         const key = getActiveSessionKey(doseSessions, confirmedMedsToday);
         setActiveSlotKey(key);
-    }, [doseSessions, confirmedMedsToday]);
+    }, [doseSessions, confirmedMedsToday, currentTime]);
 
     // ─── Fetch Weather on Mount ──────────────────────────────
     useEffect(() => {

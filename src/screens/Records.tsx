@@ -1,14 +1,17 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
     View, Text, FlatList, TextInput, TouchableOpacity,
-    StyleSheet,
+    StyleSheet, Platform, ScrollView,
 } from 'react-native';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import BottomSheet from '../components/BottomSheet';
 import { useMedContext } from '../context/MedContext';
 import { PrescriptionCard } from '../components/PrescriptionCard';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import PrimaryButton from '../components/PrimaryButton';
+import FilterChip from '../components/FilterChip';
 
 // ─── Vietnamese Diacritics Removal ──────────────────────────────
 
@@ -45,15 +48,13 @@ function checkRecordType(record: { duration: number; hospital: string }): Record
 // ─── Filter Config ──────────────────────────────────────────────
 
 const STATUS_FILTERS = [
-    { id: 'all',       label: 'Tất cả',        icon: 'layers-outline' as const },
-    { id: 'active',    label: 'Đang điều trị',  icon: 'pulse-outline' as const },
-    { id: 'completed', label: 'Đã hoàn thành',  icon: 'checkmark-done-outline' as const },
+    { id: 'active',    label: 'Đang điều trị' },
+    { id: 'completed', label: 'Đã hoàn thành' },
 ];
 
 const TYPE_FILTERS = [
-    { id: 'all',          label: 'Tất cả',        icon: 'apps-outline' as const },
-    { id: 'prescription', label: 'Đơn bác sĩ',    icon: 'document-text-outline' as const },
-    { id: 'routine',      label: 'Thuốc định kỳ', icon: 'repeat-outline' as const },
+    { id: 'prescription', label: 'Đơn bác sĩ' },
+    { id: 'routine',      label: 'Thuốc định kỳ' },
 ];
 
 // ─── Component ──────────────────────────────────────────────────
@@ -61,20 +62,122 @@ const TYPE_FILTERS = [
 export default function Records() {
     const { records, deletePrescription } = useMedContext();
     const [searchQuery, setSearchQuery] = useState('');
-    const [statusFilter, setStatusFilter] = useState('all');
-    const [typeFilter, setTypeFilter] = useState('all');
+    const [statusFilter, setStatusFilter] = useState<string | null>(null);
+    const [typeFilter, setTypeFilter] = useState<string | null>(null);
+    const [fromDate, setFromDate] = useState<Date | null>(null);
+    const [toDate, setToDate] = useState<Date | null>(null);
+    const [showFromPicker, setShowFromPicker] = useState(false);
+    const [showToPicker, setShowToPicker] = useState(false);
     const [showFilterModal, setShowFilterModal] = useState(false);
     const navigation = useNavigation<any>();
     const insets = useSafeAreaInsets();
 
-    const hasActiveFilters = statusFilter !== 'all' || typeFilter !== 'all';
+    const hasActiveFilters = statusFilter !== null || typeFilter !== null || fromDate !== null || toDate !== null;
+    const [quickDateRange, setQuickDateRange] = useState<string | null>(null);
 
-    // ── Filtered records ─────────────────────────────────────
+    const stripTime = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+
+    /** Convert Date to timezone-safe integer YYYYMMDD for comparison */
+    const dateToInt = (d: Date) => d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+
+    // ── Smart Date Selection: auto-swap instead of silent failure ──
+    const onFromDateChange = (_event: DateTimePickerEvent, date?: Date) => {
+        if (Platform.OS === 'android') setShowFromPicker(false);
+        if (date) {
+            const d = stripTime(date);
+            setQuickDateRange(null); // manual pick clears chip
+            if (toDate && dateToInt(d) > dateToInt(toDate)) {
+                setFromDate(d);
+                setToDate(null);
+            } else {
+                setFromDate(d);
+            }
+        }
+    };
+
+    const onToDateChange = (_event: DateTimePickerEvent, date?: Date) => {
+        if (Platform.OS === 'android') setShowToPicker(false);
+        if (date) {
+            const d = stripTime(date);
+            setQuickDateRange(null); // manual pick clears chip
+            if (fromDate && dateToInt(d) < dateToInt(fromDate)) {
+                setFromDate(d);
+                setToDate(null);
+            } else {
+                setToDate(d);
+            }
+        }
+    };
+
+    // ── Quick Date Range Selection ──
+    const QUICK_RANGES = [
+        { id: 'today', label: 'Hôm nay' },
+        { id: '7days', label: '7 ngày qua' },
+        { id: '30days', label: '30 ngày qua' },
+        { id: 'month', label: 'Tháng này' },
+    ];
+
+    const handleQuickSelect = useCallback((rangeId: string) => {
+        const today = stripTime(new Date());
+        // Toggle: deselect if already active
+        if (quickDateRange === rangeId) {
+            setQuickDateRange(null);
+            setFromDate(null);
+            setToDate(null);
+            return;
+        }
+        setQuickDateRange(rangeId);
+
+        switch (rangeId) {
+            case 'today':
+                setFromDate(today);
+                setToDate(today);
+                break;
+            case '7days': {
+                const from = new Date(today);
+                from.setDate(from.getDate() - 7);
+                setFromDate(from);
+                setToDate(today);
+                break;
+            }
+            case '30days': {
+                const from = new Date(today);
+                from.setDate(from.getDate() - 30);
+                setFromDate(from);
+                setToDate(today);
+                break;
+            }
+            case 'month': {
+                const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+                setFromDate(firstDay);
+                setToDate(today);
+                break;
+            }
+        }
+    }, [quickDateRange]);
+
+    const formatDateVN = (d: Date): string => {
+        const dd = String(d.getDate()).padStart(2, '0');
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const yyyy = d.getFullYear();
+        return `${dd}/${mm}/${yyyy}`;
+    };
+
+    // ── Filtered records (Timezone-safe integer comparison) ───
     const filteredRecords = useMemo(() => {
         const normalizedQuery = removeVietnameseTones(searchQuery.trim());
         return records.filter(record => {
-            if (statusFilter !== 'all' && checkRecordStatus(record) !== statusFilter) return false;
-            if (typeFilter !== 'all' && checkRecordType(record) !== typeFilter) return false;
+            if (statusFilter && checkRecordStatus(record) !== statusFilter) return false;
+            if (typeFilter && checkRecordType(record) !== typeFilter) return false;
+
+            // Date range filter — timezone-safe using integer YYYYMMDD
+            if (fromDate || toDate) {
+                const [year, month, day] = record.date.split('-').map(Number);
+                const recordInt = year * 10000 + month * 100 + day;
+                if (fromDate && recordInt < dateToInt(fromDate)) return false;
+                if (toDate && recordInt > dateToInt(toDate)) return false;
+            }
+
             if (normalizedQuery) {
                 const recordNameMatch = removeVietnameseTones(record.recordTitle || '').includes(normalizedQuery);
                 const hospitalMatch = removeVietnameseTones(record.hospital || '').includes(normalizedQuery);
@@ -85,7 +188,7 @@ export default function Records() {
             }
             return true;
         });
-    }, [records, searchQuery, statusFilter, typeFilter]);
+    }, [records, searchQuery, statusFilter, typeFilter, fromDate, toDate]);
 
     // ── Counts ───────────────────────────────────────────────
     const counts = useMemo(() => {
@@ -103,14 +206,19 @@ export default function Records() {
     // ── Active filter summary text ───────────────────────────
     const filterSummary = useMemo(() => {
         const parts: string[] = [];
-        if (statusFilter !== 'all') {
+        if (statusFilter) {
             parts.push(STATUS_FILTERS.find(f => f.id === statusFilter)?.label || '');
         }
-        if (typeFilter !== 'all') {
+        if (typeFilter) {
             parts.push(TYPE_FILTERS.find(f => f.id === typeFilter)?.label || '');
         }
+        if (fromDate || toDate) {
+            const from = fromDate ? formatDateVN(fromDate) : '...';
+            const to = toDate ? formatDateVN(toDate) : '...';
+            parts.push(`${from} → ${to}`);
+        }
         return parts.join(' · ');
-    }, [statusFilter, typeFilter]);
+    }, [statusFilter, typeFilter, fromDate, toDate]);
 
     return (
         <View style={s.container}>
@@ -195,7 +303,7 @@ export default function Records() {
                 </>
             )}
 
-            <BottomSheet visible={showFilterModal} onClose={() => setShowFilterModal(false)} maxHeight="70%">
+            <BottomSheet visible={showFilterModal} onClose={() => setShowFilterModal(false)} maxHeight="85%">
                 <View style={{ paddingHorizontal: 20 }}>
                     {/* Modal Header */}
                     <View style={s.modalHeader}>
@@ -204,11 +312,66 @@ export default function Records() {
                             onPress={() => setShowFilterModal(false)}
                             style={s.modalCloseBtn}
                         >
-                            <Ionicons name="close" size={22} color="#374151" />
+                            <Ionicons name="close" size={20} color="#374151" />
                         </TouchableOpacity>
                     </View>
 
-                        {/* Section: Status */}
+                        {/* Section 1: Date Range (TOP) */}
+                        <View style={s.modalSection}>
+                            <Text style={s.modalSectionLabel}>Thời gian tạo</Text>
+                            <View style={s.dateRangeRow}>
+                                <TouchableOpacity
+                                    style={[s.datePickerBtn, fromDate && s.datePickerBtnActive]}
+                                    onPress={() => { setShowFilterModal(false); setTimeout(() => { setShowToPicker(false); setShowFromPicker(true); }, 300); }}
+                                    activeOpacity={0.7}
+                                >
+                                    <Ionicons name="calendar-outline" size={14} color={fromDate ? '#3B82F6' : '#9ca3af'} />
+                                    <Text style={[s.datePickerText, fromDate && s.datePickerTextActive]}>
+                                        {fromDate ? formatDateVN(fromDate) : 'Từ ngày'}
+                                    </Text>
+                                    {fromDate && (
+                                        <TouchableOpacity onPress={() => setFromDate(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                                            <Ionicons name="close-circle" size={14} color="#93c5fd" />
+                                        </TouchableOpacity>
+                                    )}
+                                </TouchableOpacity>
+
+                                <Ionicons name="arrow-forward" size={14} color="#d1d5db" />
+
+                                <TouchableOpacity
+                                    style={[s.datePickerBtn, toDate && s.datePickerBtnActive]}
+                                    onPress={() => { setShowFilterModal(false); setTimeout(() => { setShowFromPicker(false); setShowToPicker(true); }, 300); }}
+                                    activeOpacity={0.7}
+                                >
+                                    <Ionicons name="calendar-outline" size={14} color={toDate ? '#3B82F6' : '#9ca3af'} />
+                                    <Text style={[s.datePickerText, toDate && s.datePickerTextActive]}>
+                                        {toDate ? formatDateVN(toDate) : 'Đến ngày'}
+                                    </Text>
+                                    {toDate && (
+                                        <TouchableOpacity onPress={() => setToDate(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                                            <Ionicons name="close-circle" size={14} color="#93c5fd" />
+                                        </TouchableOpacity>
+                                    )}
+                                </TouchableOpacity>
+                            </View>
+
+                            {/* Quick Date Range Chips */}
+                            <View style={s.quickChipsRow}>
+                                {QUICK_RANGES.map(r => {
+                                    const isActive = quickDateRange === r.id;
+                                    return (
+                                        <FilterChip
+                                            key={r.id}
+                                            label={r.label}
+                                            isActive={isActive}
+                                            onPress={() => handleQuickSelect(r.id)}
+                                        />
+                                    );
+                                })}
+                            </View>
+                        </View>
+
+                        {/* Section 2: Status */}
                         <View style={s.modalSection}>
                             <Text style={s.modalSectionLabel}>Trạng thái</Text>
                             <View style={s.modalChipGrid}>
@@ -216,32 +379,19 @@ export default function Records() {
                                     const isSelected = statusFilter === f.id;
                                     const count = counts.status[f.id] ?? 0;
                                     return (
-                                        <TouchableOpacity
+                                        <FilterChip
                                             key={f.id}
-                                            onPress={() => setStatusFilter(f.id)}
-                                            style={[s.modalChip, isSelected && s.modalChipSelectedDark]}
-                                            activeOpacity={0.7}
-                                        >
-                                            <Ionicons
-                                                name={f.icon}
-                                                size={16}
-                                                color={isSelected ? '#fff' : '#6b7280'}
-                                            />
-                                            <Text style={[s.modalChipText, isSelected && s.modalChipTextSelected]}>
-                                                {f.label}
-                                            </Text>
-                                            <View style={[s.modalChipBadge, isSelected && s.modalChipBadgeSelected]}>
-                                                <Text style={[s.modalChipBadgeText, isSelected && s.modalChipBadgeTextSelected]}>
-                                                    {count}
-                                                </Text>
-                                            </View>
-                                        </TouchableOpacity>
+                                            label={f.label}
+                                            isActive={isSelected}
+                                            onPress={() => setStatusFilter(isSelected ? null : f.id)}
+                                            badgeCount={count}
+                                        />
                                     );
                                 })}
                             </View>
                         </View>
 
-                        {/* Section: Type */}
+                        {/* Section 3: Type */}
                         <View style={s.modalSection}>
                             <Text style={s.modalSectionLabel}>Loại đơn</Text>
                             <View style={s.modalChipGrid}>
@@ -249,47 +399,63 @@ export default function Records() {
                                     const isSelected = typeFilter === f.id;
                                     const count = counts.type[f.id] ?? 0;
                                     return (
-                                        <TouchableOpacity
+                                        <FilterChip
                                             key={f.id}
-                                            onPress={() => setTypeFilter(f.id)}
-                                            style={[s.modalChip, isSelected && s.modalChipSelectedBlue]}
-                                            activeOpacity={0.7}
-                                        >
-                                            <Ionicons
-                                                name={f.icon}
-                                                size={16}
-                                                color={isSelected ? '#fff' : '#6b7280'}
-                                            />
-                                            <Text style={[s.modalChipText, isSelected && s.modalChipTextSelected]}>
-                                                {f.label}
-                                            </Text>
-                                            <View style={[s.modalChipBadge, isSelected && s.modalChipBadgeSelectedBlue]}>
-                                                <Text style={[s.modalChipBadgeText, isSelected && s.modalChipBadgeTextSelected]}>
-                                                    {count}
-                                                </Text>
-                                            </View>
-                                        </TouchableOpacity>
+                                            label={f.label}
+                                            isActive={isSelected}
+                                            onPress={() => setTypeFilter(isSelected ? null : f.id)}
+                                            badgeCount={count}
+                                        />
                                     );
                                 })}
                             </View>
                         </View>
 
                         {/* Footer */}
-                        <View style={[s.modalFooter, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-                            <TouchableOpacity
-                                style={s.modalResetBtn}
-                                onPress={() => { setStatusFilter('all'); setTypeFilter('all'); }}
-                            >
-                                <Ionicons name="refresh-outline" size={16} color="#6b7280" />
-                                <Text style={s.modalResetText}>Xóa bộ lọc</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={s.modalApplyBtn}
-                                onPress={() => setShowFilterModal(false)}
-                            >
-                                <Text style={s.modalApplyText}>Áp dụng</Text>
-                            </TouchableOpacity>
+                        <View style={[s.modalFooter, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+                            <PrimaryButton
+                                variant="outline"
+                                title="Xóa bộ lọc"
+                                icon="refresh-outline"
+                                iconSize={18}
+                                onPress={() => { setStatusFilter(null); setTypeFilter(null); setFromDate(null); setToDate(null); setShowFromPicker(false); setShowToPicker(false); setQuickDateRange(null); }}
+                                style={{ flex: 1 }}
+                            />
+                            <PrimaryButton
+                                variant="solid"
+                                title="Áp dụng"
+                                onPress={() => { setShowFilterModal(false); setShowFromPicker(false); setShowToPicker(false); }}
+                                style={{ flex: 1 }}
+                            />
                         </View>
+                </View>
+            </BottomSheet>
+
+            {/* ── Date Picker BottomSheet ── */}
+            <BottomSheet
+                visible={showFromPicker || showToPicker}
+                onClose={() => { setShowFromPicker(false); setShowToPicker(false); setTimeout(() => setShowFilterModal(true), 350); }}
+                maxHeight="50%"
+            >
+                <View style={s.datePickerSheetContent}>
+                    <Text style={s.dateOverlayTitle}>
+                        {showFromPicker ? 'Chọn ngày bắt đầu' : 'Chọn ngày kết thúc'}
+                    </Text>
+                    <DateTimePicker
+                        value={showFromPicker ? (fromDate || new Date()) : (toDate || new Date())}
+                        mode="date"
+                        display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                        onChange={showFromPicker ? onFromDateChange : onToDateChange}
+                        minimumDate={showToPicker && fromDate ? fromDate : undefined}
+                        locale="vi"
+                        style={{ height: 160 }}
+                    />
+                    <PrimaryButton
+                        variant="solid"
+                        title="Xong"
+                        onPress={() => { setShowFromPicker(false); setShowToPicker(false); setTimeout(() => setShowFilterModal(true), 350); }}
+                        style={{ marginTop: 16, width: '100%' }}
+                    />
                 </View>
             </BottomSheet>
         </View>
@@ -477,7 +643,7 @@ const s = StyleSheet.create({
 
     // Modal sections
     modalSection: {
-        marginBottom: 24,
+        marginBottom: 16,
     },
     modalSectionLabel: {
         fontSize: 11,
@@ -485,99 +651,76 @@ const s = StyleSheet.create({
         color: '#9ca3af',
         textTransform: 'uppercase',
         letterSpacing: 0.5,
-        marginBottom: 12,
+        marginBottom: 8,
     },
     modalChipGrid: {
         flexDirection: 'row',
         flexWrap: 'wrap',
-        gap: 8,
-    },
-    modalChip: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#f9fafb',
-        borderWidth: 1.5,
-        borderColor: '#e5e7eb',
-        borderRadius: 12,
-        paddingHorizontal: 14,
-        paddingVertical: 10,
         gap: 6,
-    },
-    modalChipSelectedDark: {
-        backgroundColor: '#111827',
-        borderColor: '#111827',
-    },
-    modalChipSelectedBlue: {
-        backgroundColor: '#2563eb',
-        borderColor: '#2563eb',
-    },
-    modalChipText: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: '#374151',
-    },
-    modalChipTextSelected: {
-        color: '#fff',
-    },
-    modalChipBadge: {
-        backgroundColor: '#e5e7eb',
-        borderRadius: 10,
-        paddingHorizontal: 7,
-        paddingVertical: 1,
-        minWidth: 22,
-        alignItems: 'center',
-    },
-    modalChipBadgeSelected: {
-        backgroundColor: 'rgba(255,255,255,0.25)',
-    },
-    modalChipBadgeSelectedBlue: {
-        backgroundColor: 'rgba(255,255,255,0.25)',
-    },
-    modalChipBadgeText: {
-        fontSize: 12,
-        fontWeight: '700',
-        color: '#6b7280',
-    },
-    modalChipBadgeTextSelected: {
-        color: '#fff',
     },
 
     // Modal footer
     modalFooter: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 12,
-        paddingTop: 16,
-        marginTop: 4,
+        gap: 10,
+        paddingTop: 12,
+        marginTop: 2,
         borderTopWidth: 1,
         borderTopColor: '#F3F4F6',
     },
-    modalResetBtn: {
+
+    // ── Date Range Filter ──
+    dateRangeRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    datePickerBtn: {
         flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'center',
         gap: 6,
-        paddingVertical: 14,
-        borderRadius: 14,
-        backgroundColor: '#f3f4f6',
+        paddingVertical: 8,
+        paddingHorizontal: 10,
+        borderRadius: 10,
+        backgroundColor: '#f9fafb',
+        borderWidth: 1,
+        borderColor: '#e5e7eb',
     },
-    modalResetText: {
-        fontSize: 15,
-        fontWeight: '600',
-        color: '#6b7280',
+    datePickerBtnActive: {
+        backgroundColor: '#eff6ff',
+        borderColor: '#93c5fd',
     },
-    modalApplyBtn: {
+    datePickerText: {
         flex: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 14,
-        borderRadius: 14,
-        backgroundColor: '#111827',
+        fontSize: 12,
+        fontWeight: '500',
+        color: '#9ca3af',
     },
-    modalApplyText: {
-        fontSize: 15,
+    datePickerTextActive: {
+        color: '#3B82F6',
+        fontWeight: '600',
+    },
+
+    // ── Quick Date Chips ──
+    quickChipsRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+        marginTop: 12,
+    },
+
+    // ── Date Picker BottomSheet ──
+    datePickerSheetContent: {
+        paddingHorizontal: 24,
+        paddingBottom: 24,
+        alignItems: 'center',
+    },
+    dateOverlayTitle: {
+        fontSize: 16,
         fontWeight: '700',
-        color: '#fff',
+        color: '#111827',
+        marginBottom: 12,
     },
 });

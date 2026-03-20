@@ -24,6 +24,13 @@ interface PrimaryButtonProps {
     disabled?: boolean;
     loading?: boolean;
     style?: ViewStyle;
+    textStyle?: TextStyle;
+    /** Override background color (solid variant) */
+    bgColor?: string;
+    /** Override text/icon color */
+    textColor?: string;
+    /** Override border color (outline variant) */
+    borderColor?: string;
 }
 
 export default function PrimaryButton({
@@ -36,6 +43,10 @@ export default function PrimaryButton({
     disabled = false,
     loading = false,
     style,
+    textStyle,
+    bgColor,
+    textColor: textColorProp,
+    borderColor: borderColorProp,
 }: PrimaryButtonProps) {
     const isSolid = variant === 'solid';
     const isDisabled = disabled || loading;
@@ -44,11 +55,14 @@ export default function PrimaryButton({
         styles.base,
         isSolid ? styles.solid : styles.outline,
         isDisabled ? (isSolid ? styles.solidDisabled : styles.outlineDisabled) : {},
+        bgColor && isSolid ? { backgroundColor: bgColor } : {},
+        bgColor && !isSolid ? { backgroundColor: bgColor } : {},
+        borderColorProp && !isSolid ? { borderColor: borderColorProp } : {},
         style || {},
     ] as ViewStyle[];
 
-    const textColor = isSolid ? SOLID_TEXT : OUTLINE_TEXT;
-    const iconColor = isSolid ? SOLID_TEXT : OUTLINE_TEXT;
+    const textColor = textColorProp || (isSolid ? SOLID_TEXT : OUTLINE_TEXT);
+    const iconColor = textColorProp || (isSolid ? SOLID_TEXT : OUTLINE_TEXT);
 
     const IconComponent = iconFamily === 'MaterialCommunityIcons'
         ? MaterialCommunityIcons
@@ -73,7 +87,7 @@ export default function PrimaryButton({
                             style={{ marginRight: 8 }}
                         />
                     )}
-                    <Text style={[styles.text, { color: textColor }]}>
+                    <Text style={[styles.text, { color: textColor }, textStyle]}>
                         {title}
                     </Text>
                 </>

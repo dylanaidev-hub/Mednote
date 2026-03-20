@@ -11,12 +11,13 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
     View, Text, StyleSheet, ScrollView, TouchableOpacity,
-    Animated, Easing,
+    Animated, Easing, AppState, AppStateStatus,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import TimelineCard from '../components/TimelineCard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
+import { useCurrentTime } from '../hooks/useCurrentTime';
 import { useMedContext, Prescription, MedicationStatus } from '../context/MedContext';
 import { MedicineEntry } from '../types/medicine';
 import { useToast } from '../context/ToastContext';
@@ -359,7 +360,7 @@ export default function Schedule() {
         loadDoseSessions();
     }, [selectedDate, records, confirmedSlots]);
 
-    // ── Re-fetch when tab gains focus (sync with Dashboard changes) ──
+    // ── Re-fetch when tab gains focus OR app resumes from background ──
     useFocusEffect(
         useCallback(() => {
             const reload = async () => {
@@ -370,6 +371,26 @@ export default function Schedule() {
             reload();
         }, [selectedDate])
     );
+
+    // ── AppState listener: re-fetch data when app comes back from background ──
+    useEffect(() => {
+        const appStateRef = { current: AppState.currentState };
+        const sub = AppState.addEventListener('change', (nextState: AppStateStatus) => {
+            if (
+                appStateRef.current.match(/inactive|background/) &&
+                nextState === 'active'
+            ) {
+                const reload = async () => {
+                    const dateStr = formatLocalDate(selectedDate);
+                    const rows = await sqlGetDoseSessionsForDate(dateStr);
+                    setDoseSessions(rows);
+                };
+                reload();
+            }
+            appStateRef.current = nextState;
+        });
+        return () => sub.remove();
+    }, [selectedDate]);
 
     // ── Group DB rows by session → time sub-groups ────────
     const { sessions, completedAtMap } = useMemo(
@@ -417,8 +438,8 @@ export default function Schedule() {
     const progress = totalMeds > 0 ? confirmedCount / totalMeds : 0;
     const allDone = confirmedCount >= totalMeds && totalMeds > 0;
 
-    // ── Session status ──────────────────────
-    const now = new Date();
+    // ── Session status (reactive, updates every 60s + on resume) ──
+    const now = useCurrentTime();
 
     const getSessionNodeState = (sess: DoseSession): NodeState => {
         if (isFuture(selectedDate)) return 'future';
