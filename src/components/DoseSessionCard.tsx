@@ -386,20 +386,51 @@ export const DoseSessionCard = ({
 
     // Default to closed if fully done or session closed, opened if still active
     const [isExpanded, setIsExpanded] = useState(!isFullyDone && !isSessionClosed);
+    const chevronAnim = useRef(new Animated.Value(isExpanded ? 1 : 0)).current;
+
+    // Custom LayoutAnimation config for smooth accordion
+    const accordionConfig = {
+        duration: 300,
+        update: { type: LayoutAnimation.Types.easeInEaseOut },
+        create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity, duration: 200 },
+        delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity, duration: 150 },
+    };
 
     // If fully done or session closed, collapse automatically
     useEffect(() => {
         if (isFullyDone || isSessionClosed) {
-            const timer = setTimeout(() => setIsExpanded(false), 600);
+            const timer = setTimeout(() => {
+                LayoutAnimation.configureNext(accordionConfig);
+                setIsExpanded(false);
+            }, 600);
             return () => clearTimeout(timer);
         } else {
+            LayoutAnimation.configureNext(accordionConfig);
             setIsExpanded(true);
         }
     }, [isFullyDone, isSessionClosed]);
 
-    // ─── Pulse animation for active sessions ─────────────────
+    // ─── Chevron rotation animation ──────────────────────────
     useEffect(() => {
-        if (isActive && !isFullyDone && !isMissed) {
+        Animated.timing(chevronAnim, {
+            toValue: isExpanded ? 1 : 0,
+            duration: 250,
+            easing: Easing.out(Easing.cubic),
+            useNativeDriver: true,
+        }).start();
+    }, [isExpanded]);
+
+    const chevronRotate = chevronAnim.interpolate({
+        inputRange: [0, 1],
+        outputRange: ['0deg', '180deg'],
+    });
+
+    // ─── Pulse animation for active sessions ─────────────────
+    // Only pulse when: active time window + has pending (unconfirmed/unskipped) meds
+    const shouldPulse = isActive && !isFullyDone && !isMissed && !isSessionClosed && remainingCount > 0;
+
+    useEffect(() => {
+        if (shouldPulse) {
             Animated.loop(
                 Animated.sequence([
                     Animated.timing(pulseAnim, {
@@ -417,9 +448,10 @@ export const DoseSessionCard = ({
                 ])
             ).start();
         } else {
+            pulseAnim.stopAnimation();
             pulseAnim.setValue(1);
         }
-    }, [isActive, isFullyDone, isMissed, pulseAnim]);
+    }, [shouldPulse, pulseAnim]);
 
     // ─── Confirm single item ─────────────────────────────────
     const handleConfirmOne = useCallback((medId: string) => {
@@ -475,43 +507,17 @@ export const DoseSessionCard = ({
         return isSessionOver;
     })();
 
-    if ((isFullyDone || isSessionClosed) && !isExpanded) {
-        // ── State-driven collapsed config ──
-        let collapsedSubtitle = 'Đã hoàn thành';
-        let collapsedSubColor = '#16A34A';
-
-        if (isSessionClosed && skippedCount > 0) {
-            collapsedSubtitle = confirmedCount > 0
-                ? `Đã uống ${confirmedCount}/${totalCount} liều • Bỏ qua phần còn lại`
-                : 'Đã bỏ qua cữ này';
-            collapsedSubColor = '#6B7280';
-        } else if (isTakenLate) {
-            collapsedSubtitle = 'Đã uống bù';
-            collapsedSubColor = '#d97706';
-        }
-
-        return (
-            <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={() => setIsExpanded(true)}
-                style={[styles.card, styles.cardDone]}
-            >
-                <View style={styles.headerRow}>
-                    <View style={[styles.slotIconWrap, { backgroundColor: `${session.iconColor}18` }]}>
-                        <MaterialCommunityIcons name={session.icon as any} size={22} color={session.iconColor} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                        <Text style={styles.collapsedTitle}>
-                            {session.label}
-                        </Text>
-                        <Text style={[styles.collapsedSubtitle, { color: collapsedSubColor }]}>
-                            {collapsedSubtitle}
-                        </Text>
-                    </View>
-                    <Ionicons name="chevron-down" size={20} color="#9CA3AF" />
-                </View>
-            </TouchableOpacity>
-        );
+    // ── Collapsed subtitle config ──
+    let collapsedSubtitle = 'Đã hoàn thành';
+    let collapsedSubColor = '#16A34A';
+    if (isSessionClosed && skippedCount > 0) {
+        collapsedSubtitle = confirmedCount > 0
+            ? `Đã uống ${confirmedCount}/${totalCount} liều • Bỏ qua phần còn lại`
+            : 'Đã bỏ qua cữ này';
+        collapsedSubColor = '#6B7280';
+    } else if (isTakenLate) {
+        collapsedSubtitle = 'Đã uống bù';
+        collapsedSubColor = '#d97706';
     }
 
     // ─── CTA config ──────────────────────────────────────────
@@ -522,134 +528,154 @@ export const DoseSessionCard = ({
             : `Xác nhận phần còn lại (${remainingCount})`;
     const ctaVariant = confirmedCount === 0 && !isMissed ? 'solid' as const : 'outline' as const;
 
+    // Can collapse only when fully done or session closed
+    const canCollapse = isFullyDone || isSessionClosed;
+
+    const toggleExpand = () => {
+        LayoutAnimation.configureNext(accordionConfig);
+        setIsExpanded(prev => !prev);
+    };
+
+    // ─── Subtitle shown in header ──────────────────────────
+    const headerSub = (() => {
+        if (!isExpanded && canCollapse) {
+            return <Text style={[styles.headerSubtitle, { color: collapsedSubColor }]}>{collapsedSubtitle}</Text>;
+        }
+        if (isMissed) {
+            return <Text style={{ fontSize: 13, fontWeight: '600', color: '#d97706', marginTop: 1 }}>Thiếu {missedCount} liều</Text>;
+        }
+        return <Text style={styles.headerSubtitle}>{totalCount} loại thuốc</Text>;
+    })();
+
     return (
         <Animated.View style={[
             styles.card,
             isActive && !isMissed && !isSessionClosed && styles.cardActive,
             isMissed && styles.cardMissed,
-            isSessionClosed && styles.cardDone,
+            canCollapse && styles.cardDone,
             { transform: [{ scale: pulseAnim }] },
         ]}>
 
-            {/* Header */}
-            <View style={styles.headerRow}>
-                <View style={[styles.slotIconWrap, { backgroundColor: `${session.iconColor}18` }]}>
-                    <MaterialCommunityIcons name={session.icon as any} size={22} color={session.iconColor} />
-                </View>
-                <View style={{ flex: 1 }}>
-                    <Text style={styles.headerSessionTitle}>
-                        {session.label}
-                    </Text>
-                    {isMissed ? (
-                        <Text style={{ fontSize: 13, fontWeight: '600', color: '#d97706', marginTop: 1 }}>
-                            Thiếu {missedCount} liều
+            {/* ══ Header — always rendered, tappable when collapsible ══ */}
+            <TouchableOpacity
+                activeOpacity={canCollapse ? 0.8 : 1}
+                onPress={canCollapse ? toggleExpand : undefined}
+                disabled={!canCollapse}
+            >
+                <View style={styles.headerRow}>
+                    <View style={[styles.slotIconWrap, { backgroundColor: `${session.iconColor}18` }]}>
+                        <MaterialCommunityIcons name={session.icon as any} size={22} color={session.iconColor} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                        <Text style={styles.headerSessionTitle}>
+                            {session.label}
                         </Text>
-                    ) : (
-                        <Text style={styles.headerSubtitle}>
-                            {totalCount} loại thuốc
-                        </Text>
+                        {headerSub}
+                    </View>
+                    {canCollapse && (
+                        <Animated.View style={{ transform: [{ rotate: chevronRotate }] }}>
+                            <Ionicons
+                                name="chevron-down"
+                                size={20}
+                                color="#9CA3AF"
+                            />
+                        </Animated.View>
                     )}
                 </View>
+            </TouchableOpacity>
 
-                {isFullyDone || isSessionClosed ? (
-                    <TouchableOpacity
-                        onPress={() => setIsExpanded(false)}
-                        style={{ padding: 4 }}
-                    >
-                        <Ionicons name="chevron-up" size={20} color="#9ca3af" />
-                    </TouchableOpacity>
-                ) : null}
-            </View>
+            {/* ══ Body — only rendered when expanded ══ */}
+            {isExpanded && (
+                <>
+                    {/* Medicine list grouped by time */}
+                    <View style={styles.medList}>
+                        {(() => {
+                            const timeGroups: Record<string, typeof session.medicines> = {};
+                            session.medicines.forEach(med => {
+                                const time = getMedTime(med, session.slotKey);
+                                if (!timeGroups[time]) timeGroups[time] = [];
+                                timeGroups[time].push(med);
+                            });
+                            const sortedTimes = Object.keys(timeGroups).sort();
 
-            {/* Medicine list grouped by time */}
-            <View style={styles.medList}>
-                {(() => {
-                    // Group medicines by time
-                    const timeGroups: Record<string, typeof session.medicines> = {};
-                    session.medicines.forEach(med => {
-                        const time = getMedTime(med, session.slotKey);
-                        if (!timeGroups[time]) timeGroups[time] = [];
-                        timeGroups[time].push(med);
-                    });
-                    const sortedTimes = Object.keys(timeGroups).sort();
-
-                    return sortedTimes.map(time => (
-                        <View key={time}>
-                            {/* Time sub-header */}
-                            <View style={styles.timeSubHeader}>
-                                <Ionicons name="time-outline" size={16} color="#6B7280" />
-                                <Text style={styles.timeSubHeaderText}>{time}</Text>
-                            </View>
-                            {timeGroups[time].map(med => {
-                                const doseLogId = (med as any)._doseLogId || med.id;
-                                const isConfirmed = confirmedIds.includes(doseLogId);
-                                return (
-                                    <MedicineItemRow
-                                        key={doseLogId}
-                                        med={{...med, id: doseLogId}}
-                                        sessionKey={session.slotKey}
-                                        isConfirmed={isConfirmed}
-                                        isSkipped={skippedIds.includes(doseLogId)}
-                                        dateState={dateState}
-                                        isReadOnly={isReadOnly || (isSessionClosed && dateState !== 'today')}
-                                        completedAt={completedAtMap[doseLogId]}
-                                        showCompletedTime={showCompletedTime}
-                                        onConfirm={() => handleConfirmOne(doseLogId)}
-                                        onUndo={() => onUndoItem(session.slotKey, doseLogId)}
-                                        onUndoSkip={() => handleUndoSkipItem(doseLogId)}
-                                    />
-                                );
-                            })}
-                        </View>
-                    ));
-                })()}
-            </View>
-
-            {/* UX Feedback for Future State */}
-            {dateState === 'future' && (
-                <View style={{ marginTop: 16, alignItems: 'center' }}>
-                    <Text style={{ fontSize: 13, color: '#9ca3af', fontStyle: 'italic' }}>
-                        Chưa đến thời gian uống thuốc
-                    </Text>
-                </View>
-            )}
-
-            {!isReadOnly && dateState !== 'future' && remainingCount > 0 && !isFullyDone && !isSessionClosed && (
-                isMissed ? (
-                    <View style={{ marginTop: 12, gap: 8 }}>
-                        <PrimaryButton
-                            title={ctaLabel}
-                            variant="solid"
-                            onPress={handleConfirmAll}
-                            icon="timer-outline"
-                            style={{ backgroundColor: '#f59e0b', borderColor: '#f59e0b' }}
-                        />
-                        <TouchableOpacity
-                            onPress={handleSkipLocal}
-                            activeOpacity={0.6}
-                            style={{
-                                alignItems: 'center',
-                                paddingVertical: 10,
-                            }}
-                        >
-                            <Text style={{
-                                fontSize: 14,
-                                fontWeight: '500',
-                                color: '#6B7280',
-                            }}>
-                                Bỏ cữ này
-                            </Text>
-                        </TouchableOpacity>
+                            return sortedTimes.map(time => (
+                                <View key={time}>
+                                    <View style={styles.timeSubHeader}>
+                                        <Ionicons name="time-outline" size={16} color="#6B7280" />
+                                        <Text style={styles.timeSubHeaderText}>{time}</Text>
+                                    </View>
+                                    {timeGroups[time].map(med => {
+                                        const doseLogId = (med as any)._doseLogId || med.id;
+                                        const isConfirmed = confirmedIds.includes(doseLogId);
+                                        return (
+                                            <MedicineItemRow
+                                                key={doseLogId}
+                                                med={{...med, id: doseLogId}}
+                                                sessionKey={session.slotKey}
+                                                isConfirmed={isConfirmed}
+                                                isSkipped={skippedIds.includes(doseLogId)}
+                                                dateState={dateState}
+                                                isReadOnly={isReadOnly || (isSessionClosed && dateState !== 'today')}
+                                                completedAt={completedAtMap[doseLogId]}
+                                                showCompletedTime={showCompletedTime}
+                                                onConfirm={() => handleConfirmOne(doseLogId)}
+                                                onUndo={() => onUndoItem(session.slotKey, doseLogId)}
+                                                onUndoSkip={() => handleUndoSkipItem(doseLogId)}
+                                            />
+                                        );
+                                    })}
+                                </View>
+                            ));
+                        })()}
                     </View>
-                ) : (
-                    <PrimaryButton
-                        title={ctaLabel}
-                        variant={ctaVariant}
-                        onPress={handleConfirmAll}
-                        icon="checkmark-done-outline"
-                        style={{ marginTop: 8 }}
-                    />
-                )
+
+                    {/* UX Feedback for Future State */}
+                    {dateState === 'future' && (
+                        <View style={{ marginTop: 16, alignItems: 'center' }}>
+                            <Text style={{ fontSize: 13, color: '#9ca3af', fontStyle: 'italic' }}>
+                                Chưa đến thời gian uống thuốc
+                            </Text>
+                        </View>
+                    )}
+
+                    {!isReadOnly && dateState !== 'future' && remainingCount > 0 && !isFullyDone && !isSessionClosed && (
+                        isMissed ? (
+                            <View style={{ marginTop: 12, gap: 8 }}>
+                                <PrimaryButton
+                                    title={ctaLabel}
+                                    variant="solid"
+                                    onPress={handleConfirmAll}
+                                    icon="timer-outline"
+                                    style={{ backgroundColor: '#f59e0b', borderColor: '#f59e0b' }}
+                                />
+                                <TouchableOpacity
+                                    onPress={handleSkipLocal}
+                                    activeOpacity={0.6}
+                                    style={{
+                                        alignItems: 'center',
+                                        paddingVertical: 10,
+                                    }}
+                                >
+                                    <Text style={{
+                                        fontSize: 14,
+                                        fontWeight: '500',
+                                        color: '#6B7280',
+                                    }}>
+                                        Bỏ cữ này
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                        ) : (
+                            <PrimaryButton
+                                title={ctaLabel}
+                                variant={ctaVariant}
+                                onPress={handleConfirmAll}
+                                icon="checkmark-done-outline"
+                                style={{ marginTop: 8 }}
+                            />
+                        )
+                    )}
+                </>
             )}
         </Animated.View>
     );
@@ -660,18 +686,12 @@ const styles = StyleSheet.create({
     // Card
     card: {
         backgroundColor: '#ffffff',
-        borderRadius: 18,
-        padding: 18,
+        borderRadius: 16,
+        padding: 16,
         marginBottom: 12,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 8,
-        elevation: 2,
-        borderWidth: 1.5,
-        borderColor: '#D1D5DB',
+        borderWidth: 1,
+        borderColor: '#f1f5f9',
         position: 'relative',
-        overflow: 'hidden',
     },
     cardActive: {
         borderColor: '#60A5FA',
@@ -695,9 +715,9 @@ const styles = StyleSheet.create({
         color: '#111827',
     },
     collapsedSubtitle: {
-        fontSize: 14,
-        fontWeight: '400' as const,
-        marginTop: 2,
+        fontSize: 13,
+        fontWeight: '500' as const,
+        marginTop: 1,
     },
     // Progress bar (top edge)
     progressBarTop: {
@@ -705,8 +725,8 @@ const styles = StyleSheet.create({
         top: 0,
         left: 0,
         height: 3,
-        borderTopLeftRadius: 18,
-        borderTopRightRadius: 18,
+        borderTopLeftRadius: 16,
+        borderTopRightRadius: 16,
     },
     // Header
     headerRow: {

@@ -68,6 +68,7 @@ export default function Records() {
     const [toDate, setToDate] = useState<Date | null>(null);
     const [showFromPicker, setShowFromPicker] = useState(false);
     const [showToPicker, setShowToPicker] = useState(false);
+    const [isCalPickerOpen, setIsCalPickerOpen] = useState(false);
     const [tempPickerDate, setTempPickerDate] = useState<Date | null>(null);
     const [showFilterModal, setShowFilterModal] = useState(false);
     const navigation = useNavigation<any>();
@@ -470,7 +471,9 @@ export default function Records() {
                         selectedDate={tempPickerDate}
                         onDateSelect={(d) => setTempPickerDate(d)}
                         maxDate={undefined}
+                        onPickerToggle={(open) => setIsCalPickerOpen(open)}
                     />
+                    {!isCalPickerOpen && (
                     <View style={{ flexDirection: 'row', paddingHorizontal: 16, marginTop: 16, paddingBottom: insets.bottom + 8 }}>
                         <PrimaryButton
                             title="Xác nhận"
@@ -487,6 +490,7 @@ export default function Records() {
                             style={{ flex: 1 }}
                         />
                     </View>
+                    )}
                 </View>
             </BottomSheet>
         </View>

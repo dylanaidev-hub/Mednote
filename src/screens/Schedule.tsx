@@ -726,7 +726,7 @@ const tl = StyleSheet.create({
         backgroundColor: '#d97706',
     },
     nodeIncomplete: {
-        backgroundColor: '#f59e0b',
+        backgroundColor: '#9CA3AF',
     },
     nodeActiveHalo: {
         backgroundColor: 'rgba(37, 99, 235, 0.15)',
@@ -765,7 +765,7 @@ const tl = StyleSheet.create({
         backgroundColor: '#93c5fd',
     },
     lineIncomplete: {
-        backgroundColor: '#fca5a5',
+        backgroundColor: '#d1d5db',
     },
     // ── Card styles moved to TimelineCard.tsx ──
 });
@@ -801,10 +801,11 @@ const styles = StyleSheet.create({
     strip: {
         flexDirection: 'row', paddingHorizontal: SP.md,
         paddingBottom: SP.md, gap: 4,
+        height: 82,
     },
     dayCell: {
-        flex: 1, alignItems: 'center', paddingVertical: 10,
-        borderRadius: 14, gap: 4,
+        flex: 1, alignItems: 'center', justifyContent: 'center',
+        height: 66, borderRadius: 14, gap: 4,
     },
     dayCellActive: { backgroundColor: '#1d4ed8' },
     dayCellTodaySelected: { borderWidth: 2, borderColor: '#93c5fd' },
@@ -824,10 +825,9 @@ const styles = StyleSheet.create({
     // Adherence card
     adherenceCard: {
         flexDirection: 'row', alignItems: 'center', gap: SP.md,
-        backgroundColor: '#ffffff', borderRadius: 18,
-        borderWidth: 1, borderColor: '#e5e7eb',
+        backgroundColor: '#ffffff', borderRadius: 16,
+        borderWidth: 1, borderColor: '#f1f5f9',
         padding: SP.md, marginBottom: SP.lg,
-        shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 6, elevation: 2,
     },
     adherenceInfo: { flex: 1 },
     adherenceTitle: { fontSize: 12, fontWeight: '700', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 },

@@ -144,7 +144,7 @@ export default function TimelineCard({
                     <View>
                         {missedCount > 0 && (
                             <View style={s.statusFooter}>
-                                <Ionicons name="warning" size={14} color="#d97706" />
+                                <Ionicons name="alert-circle-outline" size={14} color="#6B7280" />
                                 <Text style={s.statusIncompleteText}>
                                     Thiếu {missedCount} liều
                                 </Text>
@@ -280,15 +280,10 @@ const s = StyleSheet.create({
         backgroundColor: '#ffffff',
         borderRadius: 16,
         borderWidth: 1,
-        borderColor: '#e5e7eb',
+        borderColor: '#f1f5f9',
         padding: 14,
         marginLeft: 10,
         marginBottom: 12,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.04,
-        shadowRadius: 4,
-        elevation: 1,
     },
     cardDone: {
         backgroundColor: '#ffffff',
@@ -487,6 +482,6 @@ const s = StyleSheet.create({
     statusIncompleteText: {
         fontSize: 12,
         fontWeight: '600',
-        color: '#d97706',
+        color: '#6B7280',
     },
 });

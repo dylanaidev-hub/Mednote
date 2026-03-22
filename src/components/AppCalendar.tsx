@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import {
-    View, Text, TouchableOpacity, StyleSheet,
+    View, Text, TouchableOpacity, StyleSheet, ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -21,6 +21,8 @@ export interface AppCalendarProps {
     minDate?: Date;
     /** Max selectable date */
     maxDate?: Date;
+    /** Fires when month/year picker is shown or hidden */
+    onPickerToggle?: (isOpen: boolean) => void;
 }
 
 // ─── Constants ─────────────────────────────────────────────────
@@ -28,6 +30,10 @@ const WEEKDAY_LABELS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
 const MONTH_NAMES = [
     'Tháng 1', 'Tháng 2', 'Tháng 3', 'Tháng 4', 'Tháng 5', 'Tháng 6',
     'Tháng 7', 'Tháng 8', 'Tháng 9', 'Tháng 10', 'Tháng 11', 'Tháng 12',
+];
+const MONTH_SHORT = [
+    'Th.1', 'Th.2', 'Th.3', 'Th.4', 'Th.5', 'Th.6',
+    'Th.7', 'Th.8', 'Th.9', 'Th.10', 'Th.11', 'Th.12',
 ];
 
 const PRIMARY = '#3B82F6';
@@ -68,6 +74,7 @@ export default function AppCalendar({
     onRangeSelect,
     minDate,
     maxDate,
+    onPickerToggle,
 }: AppCalendarProps) {
     const today = useMemo(() => {
         const d = new Date();
@@ -81,6 +88,10 @@ export default function AppCalendar({
     const [viewMonth, setViewMonth] = useState(
         selectedDate?.getMonth() ?? startDate?.getMonth() ?? today.getMonth()
     );
+
+    // ─── Month/Year picker state ──────────────────────────────
+    const [showMonthYearPicker, setShowMonthYearPicker] = useState(false);
+    const [pickerYear, setPickerYear] = useState(viewYear);
 
     // ─── Range selection state ────────────────────────────────
     const [rangeStart, setRangeStart] = useState<Date | null>(startDate || null);
@@ -107,6 +118,23 @@ export default function AppCalendar({
         });
     }, []);
 
+    // ─── Toggle month/year picker ─────────────────────────────
+    const toggleMonthYearPicker = useCallback(() => {
+        setShowMonthYearPicker(prev => {
+            const next = !prev;
+            if (next) setPickerYear(viewYear);
+            onPickerToggle?.(next);
+            return next;
+        });
+    }, [viewYear, onPickerToggle]);
+
+    const selectMonth = useCallback((month: number) => {
+        setViewMonth(month);
+        setViewYear(pickerYear);
+        setShowMonthYearPicker(false);
+        onPickerToggle?.(false);
+    }, [pickerYear, onPickerToggle]);
+
     // ─── Handle date tap ──────────────────────────────────────
     const handleDayPress = useCallback((date: Date) => {
         if (mode === 'single') {
@@ -132,26 +160,32 @@ export default function AppCalendar({
         }
     }, [mode, rangeStart, rangeEnd, onDateSelect, onRangeSelect]);
 
-    // ─── Build grid ───────────────────────────────────────────
-    const calendarGrid = useMemo(() => {
+    // ─── Build grid (always 42 cells = 6 rows) ─────────────────
+    interface GridCell { date: Date; isOutside: boolean; }
+    const calendarGrid = useMemo((): GridCell[] => {
         const totalDays = getDaysInMonth(viewYear, viewMonth);
         const firstDay = getFirstDayOfWeek(viewYear, viewMonth);
+        const cells: GridCell[] = [];
 
-        const cells: (Date | null)[] = [];
-
-        // Leading empty cells
-        for (let i = 0; i < firstDay; i++) {
-            cells.push(null);
+        // Leading cells from previous month
+        const prevMonth = viewMonth === 0 ? 11 : viewMonth - 1;
+        const prevYear = viewMonth === 0 ? viewYear - 1 : viewYear;
+        const prevMonthDays = getDaysInMonth(prevYear, prevMonth);
+        for (let i = firstDay - 1; i >= 0; i--) {
+            cells.push({ date: new Date(prevYear, prevMonth, prevMonthDays - i), isOutside: true });
         }
 
-        // Day cells
+        // Current month cells
         for (let d = 1; d <= totalDays; d++) {
-            cells.push(new Date(viewYear, viewMonth, d));
+            cells.push({ date: new Date(viewYear, viewMonth, d), isOutside: false });
         }
 
-        // Trailing empty cells to complete last row
-        while (cells.length % 7 !== 0) {
-            cells.push(null);
+        // Trailing cells from next month (fill to 42)
+        const nextMonth = viewMonth === 11 ? 0 : viewMonth + 1;
+        const nextYear = viewMonth === 11 ? viewYear + 1 : viewYear;
+        let nextDay = 1;
+        while (cells.length < 42) {
+            cells.push({ date: new Date(nextYear, nextMonth, nextDay++), isOutside: true });
         }
 
         return cells;
@@ -160,76 +194,134 @@ export default function AppCalendar({
     // ─── Render ───────────────────────────────────────────────
     return (
         <View style={styles.container}>
-            {/* Header: < Month Year > */}
+            {/* Header: < Month Year ▼ > */}
             <View style={styles.header}>
                 <TouchableOpacity onPress={goToPrev} style={styles.navBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                     <Ionicons name="chevron-back" size={20} color={NAVY} />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>
-                    {MONTH_NAMES[viewMonth]} {viewYear}
-                </Text>
+                <TouchableOpacity
+                    onPress={toggleMonthYearPicker}
+                    style={styles.headerTitleBtn}
+                    activeOpacity={0.6}
+                >
+                    <Text style={styles.headerTitle}>
+                        {MONTH_NAMES[viewMonth]} {viewYear}
+                    </Text>
+                    <Ionicons
+                        name={showMonthYearPicker ? 'chevron-up' : 'chevron-down'}
+                        size={16}
+                        color={PRIMARY}
+                        style={{ marginLeft: 4 }}
+                    />
+                </TouchableOpacity>
                 <TouchableOpacity onPress={goToNext} style={styles.navBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                     <Ionicons name="chevron-forward" size={20} color={NAVY} />
                 </TouchableOpacity>
             </View>
 
-            {/* Weekday labels */}
-            <View style={styles.weekRow}>
-                {WEEKDAY_LABELS.map(label => (
-                    <View key={label} style={styles.weekCell}>
-                        <Text style={styles.weekLabel}>{label}</Text>
-                    </View>
-                ))}
-            </View>
-
-            {/* Days grid */}
-            <View style={styles.daysGrid}>
-                {calendarGrid.map((date, idx) => {
-                    if (!date) {
-                        return <View key={`empty-${idx}`} style={styles.dayCell} />;
-                    }
-
-                    const isToday = isSameDay(date, today);
-                    const isSelected = mode === 'single' && selectedDate && isSameDay(date, selectedDate);
-                    const isRangeStart = mode === 'range' && rangeStart && isSameDay(date, rangeStart);
-                    const isRangeEnd = mode === 'range' && rangeEnd && isSameDay(date, rangeEnd);
-                    const isInRangeDay = mode === 'range' && rangeStart && rangeEnd && isInRange(date, rangeStart, rangeEnd);
-
-                    const isDisabled = (minDate && date.getTime() < minDate.getTime())
-                        || (maxDate && date.getTime() > maxDate.getTime());
-
-                    const isHighlighted = isSelected || isRangeStart || isRangeEnd;
-
-                    return (
-                        <TouchableOpacity
-                            key={date.toISOString()}
-                            style={[
-                                styles.dayCell,
-                                isInRangeDay && styles.dayCellInRange,
-                                isRangeStart && styles.dayCellRangeStart,
-                                isRangeEnd && styles.dayCellRangeEnd,
-                            ]}
-                            onPress={() => !isDisabled && handleDayPress(date)}
-                            activeOpacity={isDisabled ? 1 : 0.6}
-                            disabled={isDisabled}
-                        >
-                            <View style={[
-                                styles.dayCircle,
-                                isHighlighted && styles.dayCircleSelected,
-                            ]}>
-                                <Text style={[
-                                    styles.dayText,
-                                    isToday && !isHighlighted && styles.dayTextToday,
-                                    isHighlighted && styles.dayTextSelected,
-                                    isDisabled && styles.dayTextDisabled,
-                                ]}>
-                                    {date.getDate()}
-                                </Text>
-                            </View>
+            {showMonthYearPicker ? (
+                /* ═══ Month/Year Selector ═══ */
+                <View style={styles.pickerContainer}>
+                    {/* Year navigation */}
+                    <View style={styles.yearRow}>
+                        <TouchableOpacity onPress={() => setPickerYear(y => y - 1)} style={styles.yearArrow}>
+                            <Ionicons name="chevron-back" size={18} color={NAVY} />
                         </TouchableOpacity>
-                    );
-                })}
-            </View>
+                        <Text style={styles.yearText}>{pickerYear}</Text>
+                        <TouchableOpacity onPress={() => setPickerYear(y => y + 1)} style={styles.yearArrow}>
+                            <Ionicons name="chevron-forward" size={18} color={NAVY} />
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Month grid 4×3 */}
+                    <View style={styles.monthGrid}>
+                        {MONTH_SHORT.map((label, idx) => {
+                            const isCurrentMonth = idx === viewMonth && pickerYear === viewYear;
+                            const isTodayMonth = idx === today.getMonth() && pickerYear === today.getFullYear();
+                            return (
+                                <TouchableOpacity
+                                    key={idx}
+                                    style={[
+                                        styles.monthCell,
+                                        isCurrentMonth && styles.monthCellActive,
+                                    ]}
+                                    onPress={() => selectMonth(idx)}
+                                    activeOpacity={0.6}
+                                >
+                                    <Text style={[
+                                        styles.monthCellText,
+                                        isTodayMonth && !isCurrentMonth && styles.monthCellTextToday,
+                                        isCurrentMonth && styles.monthCellTextActive,
+                                    ]}>
+                                        {label}
+                                    </Text>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
+                </View>
+            ) : (
+                /* ═══ Days Grid ═══ */
+                <>
+                    {/* Weekday labels */}
+                    <View style={styles.weekRow}>
+                        {WEEKDAY_LABELS.map(label => (
+                            <View key={label} style={styles.weekCell}>
+                                <Text style={styles.weekLabel}>{label}</Text>
+                            </View>
+                        ))}
+                    </View>
+
+                    {/* Days grid — fixed 6 rows */}
+                    <View style={styles.daysGrid}>
+                        {calendarGrid.map((cell, idx) => {
+                            const { date, isOutside } = cell;
+
+                            const isToday = !isOutside && isSameDay(date, today);
+                            const isSelected = !isOutside && mode === 'single' && selectedDate && isSameDay(date, selectedDate);
+                            const isRangeStart = !isOutside && mode === 'range' && rangeStart && isSameDay(date, rangeStart);
+                            const isRangeEnd = !isOutside && mode === 'range' && rangeEnd && isSameDay(date, rangeEnd);
+                            const isInRangeDay = !isOutside && mode === 'range' && rangeStart && rangeEnd && isInRange(date, rangeStart, rangeEnd);
+
+                            const isDisabled = isOutside
+                                || (minDate && date.getTime() < minDate.getTime())
+                                || (maxDate && date.getTime() > maxDate.getTime());
+
+                            const isHighlighted = isSelected || isRangeStart || isRangeEnd;
+
+                            return (
+                                <TouchableOpacity
+                                    key={`${date.getTime()}-${idx}`}
+                                    style={[
+                                        styles.dayCell,
+                                        isInRangeDay && styles.dayCellInRange,
+                                        isRangeStart && styles.dayCellRangeStart,
+                                        isRangeEnd && styles.dayCellRangeEnd,
+                                    ]}
+                                    onPress={() => !isDisabled && handleDayPress(date)}
+                                    activeOpacity={isDisabled ? 1 : 0.6}
+                                    disabled={isDisabled}
+                                >
+                                    <View style={[
+                                        styles.dayCircle,
+                                        isHighlighted && styles.dayCircleSelected,
+                                    ]}>
+                                        <Text style={[
+                                            styles.dayText,
+                                            isOutside && styles.dayTextOutside,
+                                            isToday && !isHighlighted && styles.dayTextToday,
+                                            isHighlighted && styles.dayTextSelected,
+                                            !isOutside && isDisabled && styles.dayTextDisabled,
+                                        ]}>
+                                            {date.getDate()}
+                                        </Text>
+                                    </View>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
+                </>
+            )}
         </View>
     );
 }
@@ -255,6 +347,14 @@ const styles = StyleSheet.create({
         backgroundColor: '#F3F4F6',
         alignItems: 'center',
         justifyContent: 'center',
+    },
+    headerTitleBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 10,
+        backgroundColor: '#F9FAFB',
     },
     headerTitle: {
         fontSize: 16,
@@ -327,5 +427,63 @@ const styles = StyleSheet.create({
     },
     dayTextDisabled: {
         opacity: 0.3,
+    },
+    dayTextOutside: {
+        color: '#D1D5DB',
+    },
+    // ─── Month/Year Picker ────────────────────────────────────
+    pickerContainer: {
+        paddingHorizontal: 12,
+        paddingBottom: 12,
+    },
+    yearRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 24,
+        marginBottom: 16,
+        paddingVertical: 4,
+    },
+    yearArrow: {
+        width: 32, height: 32,
+        borderRadius: 16,
+        backgroundColor: '#F3F4F6',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    yearText: {
+        fontSize: 20,
+        fontWeight: '800',
+        color: NAVY,
+        minWidth: 60,
+        textAlign: 'center',
+    },
+    monthGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+    },
+    monthCell: {
+        width: '30.5%',
+        paddingVertical: 14,
+        borderRadius: 12,
+        alignItems: 'center',
+        backgroundColor: '#F9FAFB',
+    },
+    monthCellActive: {
+        backgroundColor: PRIMARY,
+    },
+    monthCellText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: NAVY,
+    },
+    monthCellTextToday: {
+        color: PRIMARY,
+        fontWeight: '700',
+    },
+    monthCellTextActive: {
+        color: '#FFFFFF',
+        fontWeight: '700',
     },
 });

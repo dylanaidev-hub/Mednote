@@ -46,6 +46,7 @@ export default function ManualAddScreen() {
         editPrescription ? new Date(editPrescription.date) : null
     );
     const [showDatePicker, setShowDatePicker] = useState(false);
+    const [isCalPickerOpen, setIsCalPickerOpen] = useState(false);
     const [tempDate, setTempDate] = useState<Date | null>(null);
     const [duration, setDuration] = useState(
         editPrescription ? String(editPrescription.duration) : ''
@@ -450,7 +451,9 @@ export default function ManualAddScreen() {
                         mode="single"
                         selectedDate={tempDate}
                         onDateSelect={(d) => setTempDate(d)}
+                        onPickerToggle={(open) => setIsCalPickerOpen(open)}
                     />
+                    {!isCalPickerOpen && (
                     <View style={{ flexDirection: 'row', marginTop: 16, paddingBottom: insets.bottom + 8 }}>
                         <PrimaryButton
                             title="Xác nhận"
@@ -466,6 +469,7 @@ export default function ManualAddScreen() {
                             style={{ flex: 1 }}
                         />
                     </View>
+                    )}
                 </View>
             </BottomSheet>
         </View>

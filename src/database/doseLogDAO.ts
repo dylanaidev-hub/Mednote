@@ -319,6 +319,7 @@ export async function getDoseSessionsForDate(dateStr: string): Promise<DoseSessi
          JOIN schedules s ON dl.schedule_id = s.id
          JOIN medications m ON dl.medication_id = m.id
          WHERE dl.scheduled_date = '${esc(dateStr)}'
+           AND date(m.start_date) <= date('${esc(dateStr)}')
          ORDER BY s.time ASC`
     );
     return rows;
