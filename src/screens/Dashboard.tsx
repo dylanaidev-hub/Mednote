@@ -306,7 +306,7 @@ export default function Dashboard() {
         <View style={styles.container}>
             <ScrollView
                 style={styles.scrollView}
-                contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom, 20) + 80 }]}
+                contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 16, paddingBottom: Math.max(insets.bottom, 20) + 80 }]}
                 showsVerticalScrollIndicator={false}
             >
                 {/* Weather Widget */}
@@ -430,7 +430,6 @@ const styles = StyleSheet.create({
     },
     scrollContent: {
         padding: 16,
-        paddingTop: Platform.OS === 'ios' ? 60 : 16,
         paddingBottom: 100,
     },
     // Progress header

@@ -168,29 +168,8 @@ interface DoseSessionCardProps {
     showCompletedTime?: boolean;
 }
 
-// ─── Dynamic Icon Mapping ────────────────────────────────────────
-const getMedicineIconConfig = (med: MedicineEntry) => {
-    // Priority 1: Source distinction as per requirements
-    if (med.source === 'routine') {
-        return { family: 'MaterialCommunityIcons' as const, name: 'leaf', color: '#10b981', bgColor: '#ecfdf5' };
-    }
-
-    // Priority 2: Unit-based icons for prescriptions
-    const unit = (med.unit || '').toLowerCase();
-
-    // Packets / Powders
-    if (unit.includes('gói')) {
-        return { family: 'Ionicons' as const, name: 'cube-outline', color: '#f59e0b', bgColor: '#fef3c7' };
-    }
-
-    // Liquids / Syrups
-    if (unit.includes('ml') || unit.includes('lọ') || unit.includes('ống') || unit.includes('chai')) {
-        return { family: 'Ionicons' as const, name: 'water-outline', color: '#0ea5e9', bgColor: '#e0f2fe' };
-    }
-
-    // Pills / Tablets (Default)
-    return { family: 'MaterialCommunityIcons' as const, name: 'pill', color: '#3b82f6', bgColor: '#eff6ff' };
-};
+// ─── Dynamic Icon Mapping (from Design System) ──────────────────
+import { getMedicineIconConfig } from '../utils/medicineIconConfig';
 
 // ─── Format completed_at timestamp ──────────────────────────────
 function formatCompletedAt(timestamp: number | undefined): string | null {
@@ -374,8 +353,6 @@ export const DoseSessionCard = ({
     // Combine confirmed and late counts for progress logic 
     const confirmedCount = validConfirmedIds.length;
     const resolvedCount = validConfirmedIds.length;
-    const remainingCount = totalCount - resolvedCount;
-    // Progress implies anything handled (done or late, or pure done depending on interpretation. Lets use resolved / total)
     const progress = totalCount > 0 ? resolvedCount / totalCount : 0;
     const isFullyDone = totalCount > 0 && resolvedCount >= totalCount;
 
@@ -391,7 +368,6 @@ export const DoseSessionCard = ({
     const isSessionOver = dateState === 'today' && sessionWin
         ? nowHour >= sessionWin.end
         : dateState === 'past';
-    const missedCount = totalCount - confirmedCount;
 
     // ─── Local skipped IDs tracking (init from DB) ────────────
     const initialSkippedIds = useMemo(() => {
@@ -401,6 +377,10 @@ export const DoseSessionCard = ({
     }, [session.medicines]);
     const [skippedIds, setSkippedIds] = useState<string[]>(initialSkippedIds);
     const skippedCount = skippedIds.filter(id => validDoseLogIds.has(id)).length;
+
+    // ─── Derived counts (AFTER skippedCount is known) ─────────
+    const remainingCount = totalCount - confirmedCount - skippedCount;
+    const missedCount = totalCount - confirmedCount - skippedCount;
     const isSessionClosed = totalCount > 0 && (confirmedCount + skippedCount) >= totalCount;
     const isMissed = isSessionOver && !isFullyDone && !isSessionClosed && totalCount > 0;
 
@@ -450,24 +430,25 @@ export const DoseSessionCard = ({
     const handleConfirmAll = useCallback(() => {
         const remainingDoseLogIds = session.medicines
             .filter(m => !confirmedIds.includes(getDoseLogId(m)))
+            .filter(m => !skippedIds.includes(getDoseLogId(m)))
             .map(m => getDoseLogId(m));
         if (remainingDoseLogIds.length > 0) {
             onConfirmItems(session.slotKey, remainingDoseLogIds);
         }
-    }, [session, confirmedIds, onConfirmItems]);
+    }, [session, confirmedIds, skippedIds, onConfirmItems]);
 
     // ─── Skip session (local tracking) ────────────────────────
     const handleSkipLocal = useCallback(() => {
         const remainingDoseLogIds = session.medicines
             .filter(m => !confirmedIds.includes(getDoseLogId(m)))
+            .filter(m => !skippedIds.includes(getDoseLogId(m)))
             .map(m => getDoseLogId(m));
         setSkippedIds(prev => [...prev, ...remainingDoseLogIds]);
-        // Persist to DB
         skipDoseLogs(remainingDoseLogIds).catch(console.error);
         if (onSkipSession) {
             onSkipSession(session.slotKey);
         }
-    }, [session, confirmedIds, onSkipSession]);
+    }, [session, confirmedIds, skippedIds, onSkipSession]);
 
     // ─── Undo skip for a single item ──────────────────────────
     const handleUndoSkipItem = useCallback((medId: string) => {
@@ -506,7 +487,7 @@ export const DoseSessionCard = ({
             collapsedSubColor = '#6B7280';
         } else if (isTakenLate) {
             collapsedSubtitle = 'Đã uống bù';
-            collapsedSubColor = '#0D9488';
+            collapsedSubColor = '#d97706';
         }
 
         return (

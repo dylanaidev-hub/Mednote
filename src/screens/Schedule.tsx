@@ -288,33 +288,24 @@ const TimelineNode = ({ state }: { state: NodeState }) => {
     }, [state]);
 
     if (state === 'done') {
-        return (
-            <View style={[tl.node, tl.nodeDone]}>
-                <Ionicons name="checkmark" size={12} color="#ffffff" />
-            </View>
-        );
+        return <View style={[tl.node, tl.nodeDone]} />;
     }
     if (state === 'done_late') {
-        return (
-            <View style={[tl.node, { backgroundColor: '#0D9488' }]}>
-                <Ionicons name="checkmark" size={12} color="#ffffff" />
-            </View>
-        );
+        return <View style={[tl.node, tl.nodeDoneLate]} />;
     }
     if (state === 'active') {
         return (
             <View style={[tl.node, tl.nodeActiveHalo]}>
-                {/* Pulsing ripple layer */}
                 <Animated.View style={{
                     position: 'absolute',
-                    width: 26,
-                    height: 26,
-                    borderRadius: 13,
+                    width: 14,
+                    height: 14,
+                    borderRadius: 7,
                     backgroundColor: 'rgba(37, 99, 235, 0.4)',
                     transform: [{
                         scale: pulseAnim.interpolate({
                             inputRange: [0, 1],
-                            outputRange: [1, 2],
+                            outputRange: [1, 2.2],
                         }),
                     }],
                     opacity: pulseAnim.interpolate({
@@ -322,13 +313,12 @@ const TimelineNode = ({ state }: { state: NodeState }) => {
                         outputRange: [0.6, 0],
                     }),
                 }} />
-                {/* Static inner dot */}
                 <View style={tl.nodeActiveInner} />
             </View>
         );
     }
     if (state === 'incomplete') {
-        return <View style={[tl.node, { backgroundColor: '#f59e0b' }]} />;
+        return <View style={[tl.node, tl.nodeIncomplete]} />;
     }
     // upcoming / future
     return <View style={[tl.node, tl.nodeDefault]} />;
@@ -398,27 +388,43 @@ export default function Schedule() {
         [doseSessions]
     );
 
-    // ── hasMeds dot for calendar strip ──
-    const [dayDotsCache, setDayDotsCache] = useState<Record<string, boolean>>({});
+    // ── Smart dot indicator for calendar strip ──
+    type DotStatus = 'completed' | 'missed' | 'pending' | 'none';
+    const [dayDotsCache, setDayDotsCache] = useState<Record<string, DotStatus>>({});
     useEffect(() => {
         const loadDots = async () => {
-            const cache: Record<string, boolean> = {};
+            const cache: Record<string, DotStatus> = {};
             for (const d of days) {
                 const dStr = formatLocalDate(d);
                 const rows = await sqlGetDoseSessionsForDate(dStr);
-                cache[dStr] = rows.length > 0;
+                if (rows.length === 0) {
+                    cache[dStr] = 'none';
+                } else if (rows.every(r => r.status === 'COMPLETED')) {
+                    cache[dStr] = 'completed';
+                } else if (rows.some(r => r.status === 'MISSED' || r.status === 'SKIPPED')) {
+                    cache[dStr] = 'missed';
+                } else {
+                    cache[dStr] = 'pending';
+                }
             }
             setDayDotsCache(cache);
         };
         loadDots();
-    }, [weekBase, records]);
+    }, [weekBase, records, confirmedSlots]);
 
     // ── Date state helpers ─────────────────────────────────────
     const isToday = (d: Date) => dayStart(d).getTime() === today.getTime();
     const isPast = (d: Date) => dayStart(d).getTime() < today.getTime();
     const isFuture = (d: Date) => dayStart(d).getTime() > today.getTime();
     const isSelected = (d: Date) => dayStart(d).getTime() === dayStart(selectedDate).getTime();
-    const hasMeds = (d: Date) => dayDotsCache[formatLocalDate(d)] || false;
+    const getDotStatus = (d: Date): DotStatus => dayDotsCache[formatLocalDate(d)] || 'none';
+
+    const DOT_COLORS: Record<DotStatus, string> = {
+        completed: '#22C55E',
+        missed: '#EF4444',
+        pending: '#F59E0B',
+        none: 'transparent',
+    };
 
     // ── Adherence computation ────────────────
     const totalMeds = sessions.reduce((s: number, sess: DoseSession) => s + sess.medicines.length, 0);
@@ -556,23 +562,41 @@ export default function Schedule() {
                 {days.map((d, i) => {
                     const sel = isSelected(d);
                     const tod = isToday(d);
-                    const dot = hasMeds(d);
+                    const dotStatus = getDotStatus(d);
                     const dow = d.getDay();
+                    const past = isPast(d);
+                    const dimmed = past && !sel;
                     return (
                         <TouchableOpacity
                             key={i}
-                            style={[styles.dayCell, sel && styles.dayCellActive]}
+                            style={[
+                                styles.dayCell,
+                                sel && styles.dayCellActive,
+                                sel && tod && styles.dayCellTodaySelected,
+                            ]}
                             onPress={() => setSelectedDate(d)}
                             activeOpacity={0.75}
                         >
-                            <Text style={[styles.dowText, sel && styles.dowTextActive, tod && !sel && styles.dowTextToday]}>
+                            <Text style={[
+                                styles.dowText,
+                                sel && styles.dowTextActive,
+                                tod && !sel && styles.dowTextToday,
+                                dimmed && { opacity: 0.45 },
+                            ]}>
                                 {VI_DOW[dow]}
                             </Text>
-                            <Text style={[styles.dateNum, sel && styles.dateNumActive, tod && !sel && styles.dateNumToday]}>
+                            <Text style={[
+                                styles.dateNum,
+                                sel && styles.dateNumActive,
+                                tod && !sel && styles.dateNumToday,
+                                dimmed && { opacity: 0.45 },
+                            ]}>
                                 {d.getDate()}
                             </Text>
                             <View style={styles.dotRow}>
-                                {dot ? <View style={[styles.dot, sel && styles.dotActive]} /> : <View style={styles.dotPlaceholder} />}
+                                {dotStatus !== 'none'
+                                    ? <View style={[styles.dot, { backgroundColor: DOT_COLORS[dotStatus] }, dimmed && { opacity: 0.45 }]} />
+                                    : <View style={styles.dotPlaceholder} />}
                             </View>
                         </TouchableOpacity>
                     );
@@ -647,8 +671,9 @@ export default function Schedule() {
                                             <View style={[
                                                 tl.line,
                                                 isDone && tl.lineDone,
-                                                isDoneLate && tl.lineDone,
+                                                isDoneLate && tl.lineDoneLate,
                                                 isActive && tl.lineActive,
+                                                isIncomplete && tl.lineIncomplete,
                                             ]} />
                                         )}
                                     </View>
@@ -686,37 +711,43 @@ const tl = StyleSheet.create({
         alignItems: 'center',
     },
     node: {
-        width: 22,
-        height: 22,
-        borderRadius: 11,
+        width: 14,
+        height: 14,
+        borderRadius: 7,
         alignItems: 'center',
         justifyContent: 'center',
         zIndex: 2,
-        marginTop: 14,
+        marginTop: 18,
     },
     nodeDone: {
         backgroundColor: '#10b981',
     },
+    nodeDoneLate: {
+        backgroundColor: '#d97706',
+    },
+    nodeIncomplete: {
+        backgroundColor: '#f59e0b',
+    },
     nodeActiveHalo: {
-        backgroundColor: 'rgba(37, 99, 235, 0.2)',
-        width: 26,
-        height: 26,
-        borderRadius: 13,
+        backgroundColor: 'rgba(37, 99, 235, 0.15)',
+        width: 22,
+        height: 22,
+        borderRadius: 11,
         borderWidth: 0,
+        marginTop: 14,
     },
     nodeActiveInner: {
-        width: 12,
-        height: 12,
-        borderRadius: 6,
+        width: 10,
+        height: 10,
+        borderRadius: 5,
         backgroundColor: '#2563eb',
     },
     nodeDefault: {
-        backgroundColor: '#e5e7eb',
-        width: 18,
-        height: 18,
-        borderRadius: 9,
-        borderWidth: 3,
-        borderColor: '#f3f4f6',
+        backgroundColor: '#d1d5db',
+        width: 10,
+        height: 10,
+        borderRadius: 5,
+        marginTop: 20,
     },
     line: {
         flex: 1,
@@ -727,8 +758,14 @@ const tl = StyleSheet.create({
     lineDone: {
         backgroundColor: '#86efac',
     },
+    lineDoneLate: {
+        backgroundColor: '#fcd34d',
+    },
     lineActive: {
         backgroundColor: '#93c5fd',
+    },
+    lineIncomplete: {
+        backgroundColor: '#fca5a5',
     },
     // ── Card styles moved to TimelineCard.tsx ──
 });
@@ -770,16 +807,16 @@ const styles = StyleSheet.create({
         borderRadius: 14, gap: 4,
     },
     dayCellActive: { backgroundColor: '#1d4ed8' },
+    dayCellTodaySelected: { borderWidth: 2, borderColor: '#93c5fd' },
     dowText: { fontSize: 11, fontWeight: '600', color: '#9ca3af' },
     dowTextActive: { color: 'rgba(255,255,255,0.8)' },
     dowTextToday: { color: '#2563eb' },
     dateNum: { fontSize: 16, fontWeight: '700', color: '#374151' },
-    dateNumActive: { color: '#ffffff' },
+    dateNumActive: { color: '#ffffff', fontWeight: '900' as any },
     dateNumToday: { color: '#2563eb' },
     dotRow: { height: 6, alignItems: 'center', justifyContent: 'center' },
-    dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#93c5fd' },
-    dotActive: { backgroundColor: 'rgba(255,255,255,0.6)' },
-    dotPlaceholder: { width: 5, height: 5 },
+    dot: { width: 6, height: 6, borderRadius: 3 },
+    dotPlaceholder: { width: 6, height: 6 },
 
     // Scroll
     scrollContent: { paddingHorizontal: SP.lg, paddingTop: SP.md },

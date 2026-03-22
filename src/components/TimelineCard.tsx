@@ -128,7 +128,7 @@ export default function TimelineCard({
             )}
             {isDoneLate && (
                 <View style={s.statusFooter}>
-                    <Ionicons name="timer-outline" size={14} color="#0D9488" />
+                    <Ionicons name="timer-outline" size={14} color="#d97706" />
                     <Text style={s.statusDoneLateText}>Đã uống bù</Text>
                 </View>
             )}
@@ -207,7 +207,7 @@ function MedicineRow({
                 s.medBullet,
                 isActive && !confirmed && !isSkippedMed && s.medBulletActive,
                 confirmed && !isMedLate && s.medBulletDone,
-                confirmed && isMedLate && { backgroundColor: '#0D9488' },
+                confirmed && isMedLate && { backgroundColor: '#d97706' },
                 isSkippedMed && { backgroundColor: '#9CA3AF' },
                 isMissedMed && { backgroundColor: '#EF4444' },
             ]} />
@@ -236,12 +236,12 @@ function MedicineRow({
             {confirmed && takenTimeStr ? (
                 <View style={[
                     s.takenBadge,
-                    isMedLate && { backgroundColor: '#CCFBF1' },
+                    isMedLate && { backgroundColor: '#FEF3C7' },
                 ]}>
-                    <Feather name="check" size={12} color={isMedLate ? '#0F766E' : '#166534'} />
+                    <Feather name="check" size={12} color={isMedLate ? '#92400E' : '#166534'} />
                     <Text style={[
                         s.takenBadgeText,
-                        isMedLate && { color: '#0F766E' },
+                        isMedLate && { color: '#92400E' },
                     ]}>{takenTimeStr}</Text>
                 </View>
             ) : isSkippedMed ? (
@@ -477,7 +477,7 @@ const s = StyleSheet.create({
     statusDoneLateText: {
         fontSize: 12,
         fontWeight: '600',
-        color: '#0D9488',
+        color: '#d97706',
     },
     statusActiveText: {
         fontSize: 12,

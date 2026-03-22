@@ -3,7 +3,7 @@ import {
     View, Text, FlatList, TextInput, TouchableOpacity,
     StyleSheet, Platform, ScrollView,
 } from 'react-native';
-import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import AppCalendar from '../components/AppCalendar';
 import BottomSheet from '../components/BottomSheet';
 import { useMedContext } from '../context/MedContext';
 import { PrescriptionCard } from '../components/PrescriptionCard';
@@ -68,45 +68,60 @@ export default function Records() {
     const [toDate, setToDate] = useState<Date | null>(null);
     const [showFromPicker, setShowFromPicker] = useState(false);
     const [showToPicker, setShowToPicker] = useState(false);
+    const [tempPickerDate, setTempPickerDate] = useState<Date | null>(null);
     const [showFilterModal, setShowFilterModal] = useState(false);
     const navigation = useNavigation<any>();
     const insets = useSafeAreaInsets();
 
     const hasActiveFilters = statusFilter !== null || typeFilter !== null || fromDate !== null || toDate !== null;
-    const [quickDateRange, setQuickDateRange] = useState<string | null>(null);
+
+    // ── Draft State for Filter BottomSheet ──
+    const [draftStatus, setDraftStatus] = useState<string | null>(null);
+    const [draftType, setDraftType] = useState<string | null>(null);
+    const [draftFrom, setDraftFrom] = useState<Date | null>(null);
+    const [draftTo, setDraftTo] = useState<Date | null>(null);
+    const [draftQuickRange, setDraftQuickRange] = useState<string | null>(null);
+
+    /** Copy parent state → draft when opening filter */
+    const openFilterModal = useCallback(() => {
+        setDraftStatus(statusFilter);
+        setDraftType(typeFilter);
+        setDraftFrom(fromDate);
+        setDraftTo(toDate);
+        setDraftQuickRange(null);
+        setShowFilterModal(true);
+    }, [statusFilter, typeFilter, fromDate, toDate]);
 
     const stripTime = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 
     /** Convert Date to timezone-safe integer YYYYMMDD for comparison */
     const dateToInt = (d: Date) => d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
 
-    // ── Smart Date Selection: auto-swap instead of silent failure ──
-    const onFromDateChange = (_event: DateTimePickerEvent, date?: Date) => {
-        if (Platform.OS === 'android') setShowFromPicker(false);
-        if (date) {
-            const d = stripTime(date);
-            setQuickDateRange(null); // manual pick clears chip
-            if (toDate && dateToInt(d) > dateToInt(toDate)) {
-                setFromDate(d);
-                setToDate(null);
-            } else {
-                setFromDate(d);
-            }
+    // ── Smart Date Selection (operates on draft state) ──
+    const onFromDateSelect = (date: Date) => {
+        const d = stripTime(date);
+        setDraftQuickRange(null);
+        if (draftTo && dateToInt(d) > dateToInt(draftTo)) {
+            setDraftFrom(d);
+            setDraftTo(null);
+        } else {
+            setDraftFrom(d);
         }
+        setShowFromPicker(false);
+        setTimeout(() => setShowFilterModal(true), 350);
     };
 
-    const onToDateChange = (_event: DateTimePickerEvent, date?: Date) => {
-        if (Platform.OS === 'android') setShowToPicker(false);
-        if (date) {
-            const d = stripTime(date);
-            setQuickDateRange(null); // manual pick clears chip
-            if (fromDate && dateToInt(d) < dateToInt(fromDate)) {
-                setFromDate(d);
-                setToDate(null);
-            } else {
-                setToDate(d);
-            }
+    const onToDateSelect = (date: Date) => {
+        const d = stripTime(date);
+        setDraftQuickRange(null);
+        if (draftFrom && dateToInt(d) < dateToInt(draftFrom)) {
+            setDraftFrom(d);
+            setDraftTo(null);
+        } else {
+            setDraftTo(d);
         }
+        setShowToPicker(false);
+        setTimeout(() => setShowFilterModal(true), 350);
     };
 
     // ── Quick Date Range Selection ──
@@ -119,42 +134,41 @@ export default function Records() {
 
     const handleQuickSelect = useCallback((rangeId: string) => {
         const today = stripTime(new Date());
-        // Toggle: deselect if already active
-        if (quickDateRange === rangeId) {
-            setQuickDateRange(null);
-            setFromDate(null);
-            setToDate(null);
+        if (draftQuickRange === rangeId) {
+            setDraftQuickRange(null);
+            setDraftFrom(null);
+            setDraftTo(null);
             return;
         }
-        setQuickDateRange(rangeId);
+        setDraftQuickRange(rangeId);
 
         switch (rangeId) {
             case 'today':
-                setFromDate(today);
-                setToDate(today);
+                setDraftFrom(today);
+                setDraftTo(today);
                 break;
             case '7days': {
                 const from = new Date(today);
                 from.setDate(from.getDate() - 7);
-                setFromDate(from);
-                setToDate(today);
+                setDraftFrom(from);
+                setDraftTo(today);
                 break;
             }
             case '30days': {
                 const from = new Date(today);
                 from.setDate(from.getDate() - 30);
-                setFromDate(from);
-                setToDate(today);
+                setDraftFrom(from);
+                setDraftTo(today);
                 break;
             }
             case 'month': {
                 const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-                setFromDate(firstDay);
-                setToDate(today);
+                setDraftFrom(firstDay);
+                setDraftTo(today);
                 break;
             }
         }
-    }, [quickDateRange]);
+    }, [draftQuickRange]);
 
     const formatDateVN = (d: Date): string => {
         const dd = String(d.getDate()).padStart(2, '0');
@@ -247,7 +261,7 @@ export default function Records() {
                     {/* Filter Button */}
                     <TouchableOpacity
                         style={[s.filterBtn, hasActiveFilters && s.filterBtnActive]}
-                        onPress={() => setShowFilterModal(true)}
+                        onPress={() => openFilterModal()}
                         activeOpacity={0.7}
                     >
                         <Ionicons
@@ -321,16 +335,16 @@ export default function Records() {
                             <Text style={s.modalSectionLabel}>Thời gian tạo</Text>
                             <View style={s.dateRangeRow}>
                                 <TouchableOpacity
-                                    style={[s.datePickerBtn, fromDate && s.datePickerBtnActive]}
+                                    style={[s.datePickerBtn, draftFrom && s.datePickerBtnActive]}
                                     onPress={() => { setShowFilterModal(false); setTimeout(() => { setShowToPicker(false); setShowFromPicker(true); }, 300); }}
                                     activeOpacity={0.7}
                                 >
-                                    <Ionicons name="calendar-outline" size={14} color={fromDate ? '#3B82F6' : '#9ca3af'} />
-                                    <Text style={[s.datePickerText, fromDate && s.datePickerTextActive]}>
-                                        {fromDate ? formatDateVN(fromDate) : 'Từ ngày'}
+                                    <Ionicons name="calendar-outline" size={14} color={draftFrom ? '#3B82F6' : '#9ca3af'} />
+                                    <Text style={[s.datePickerText, draftFrom && s.datePickerTextActive]}>
+                                        {draftFrom ? formatDateVN(draftFrom) : 'Từ ngày'}
                                     </Text>
-                                    {fromDate && (
-                                        <TouchableOpacity onPress={() => setFromDate(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                                    {draftFrom && (
+                                        <TouchableOpacity onPress={() => setDraftFrom(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                                             <Ionicons name="close-circle" size={14} color="#93c5fd" />
                                         </TouchableOpacity>
                                     )}
@@ -339,26 +353,27 @@ export default function Records() {
                                 <Ionicons name="arrow-forward" size={14} color="#d1d5db" />
 
                                 <TouchableOpacity
-                                    style={[s.datePickerBtn, toDate && s.datePickerBtnActive]}
+                                    style={[s.datePickerBtn, draftTo && s.datePickerBtnActive]}
                                     onPress={() => { setShowFilterModal(false); setTimeout(() => { setShowFromPicker(false); setShowToPicker(true); }, 300); }}
                                     activeOpacity={0.7}
                                 >
-                                    <Ionicons name="calendar-outline" size={14} color={toDate ? '#3B82F6' : '#9ca3af'} />
-                                    <Text style={[s.datePickerText, toDate && s.datePickerTextActive]}>
-                                        {toDate ? formatDateVN(toDate) : 'Đến ngày'}
+                                    <Ionicons name="calendar-outline" size={14} color={draftTo ? '#3B82F6' : '#9ca3af'} />
+                                    <Text style={[s.datePickerText, draftTo && s.datePickerTextActive]}>
+                                        {draftTo ? formatDateVN(draftTo) : 'Đến ngày'}
                                     </Text>
-                                    {toDate && (
-                                        <TouchableOpacity onPress={() => setToDate(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                                    {draftTo && (
+                                        <TouchableOpacity onPress={() => setDraftTo(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                                             <Ionicons name="close-circle" size={14} color="#93c5fd" />
                                         </TouchableOpacity>
                                     )}
                                 </TouchableOpacity>
                             </View>
 
+
                             {/* Quick Date Range Chips */}
                             <View style={s.quickChipsRow}>
                                 {QUICK_RANGES.map(r => {
-                                    const isActive = quickDateRange === r.id;
+                                    const isActive = draftQuickRange === r.id;
                                     return (
                                         <FilterChip
                                             key={r.id}
@@ -376,14 +391,14 @@ export default function Records() {
                             <Text style={s.modalSectionLabel}>Trạng thái</Text>
                             <View style={s.modalChipGrid}>
                                 {STATUS_FILTERS.map(f => {
-                                    const isSelected = statusFilter === f.id;
+                                    const isSelected = draftStatus === f.id;
                                     const count = counts.status[f.id] ?? 0;
                                     return (
                                         <FilterChip
                                             key={f.id}
                                             label={f.label}
                                             isActive={isSelected}
-                                            onPress={() => setStatusFilter(isSelected ? null : f.id)}
+                                            onPress={() => setDraftStatus(isSelected ? null : f.id)}
                                             badgeCount={count}
                                         />
                                     );
@@ -396,14 +411,14 @@ export default function Records() {
                             <Text style={s.modalSectionLabel}>Loại đơn</Text>
                             <View style={s.modalChipGrid}>
                                 {TYPE_FILTERS.map(f => {
-                                    const isSelected = typeFilter === f.id;
+                                    const isSelected = draftType === f.id;
                                     const count = counts.type[f.id] ?? 0;
                                     return (
                                         <FilterChip
                                             key={f.id}
                                             label={f.label}
                                             isActive={isSelected}
-                                            onPress={() => setTypeFilter(isSelected ? null : f.id)}
+                                            onPress={() => setDraftType(isSelected ? null : f.id)}
                                             badgeCount={count}
                                         />
                                     );
@@ -418,13 +433,22 @@ export default function Records() {
                                 title="Xóa bộ lọc"
                                 icon="refresh-outline"
                                 iconSize={18}
-                                onPress={() => { setStatusFilter(null); setTypeFilter(null); setFromDate(null); setToDate(null); setShowFromPicker(false); setShowToPicker(false); setQuickDateRange(null); }}
+                                onPress={() => {
+                                    setStatusFilter(null); setTypeFilter(null); setFromDate(null); setToDate(null);
+                                    setShowFilterModal(false);
+                                }}
                                 style={{ flex: 1 }}
                             />
                             <PrimaryButton
                                 variant="solid"
                                 title="Áp dụng"
-                                onPress={() => { setShowFilterModal(false); setShowFromPicker(false); setShowToPicker(false); }}
+                                onPress={() => {
+                                    setStatusFilter(draftStatus);
+                                    setTypeFilter(draftType);
+                                    setFromDate(draftFrom);
+                                    setToDate(draftTo);
+                                    setShowFilterModal(false);
+                                }}
                                 style={{ flex: 1 }}
                             />
                         </View>
@@ -434,28 +458,35 @@ export default function Records() {
             {/* ── Date Picker BottomSheet ── */}
             <BottomSheet
                 visible={showFromPicker || showToPicker}
-                onClose={() => { setShowFromPicker(false); setShowToPicker(false); setTimeout(() => setShowFilterModal(true), 350); }}
-                maxHeight="50%"
+                onClose={() => { setShowFromPicker(false); setShowToPicker(false); setTempPickerDate(null); setTimeout(() => setShowFilterModal(true), 350); }}
+                maxHeight="70%"
             >
                 <View style={s.datePickerSheetContent}>
                     <Text style={s.dateOverlayTitle}>
                         {showFromPicker ? 'Chọn ngày bắt đầu' : 'Chọn ngày kết thúc'}
                     </Text>
-                    <DateTimePicker
-                        value={showFromPicker ? (fromDate || new Date()) : (toDate || new Date())}
-                        mode="date"
-                        display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                        onChange={showFromPicker ? onFromDateChange : onToDateChange}
-                        minimumDate={showToPicker && fromDate ? fromDate : undefined}
-                        locale="vi"
-                        style={{ height: 160 }}
+                    <AppCalendar
+                        mode="single"
+                        selectedDate={tempPickerDate}
+                        onDateSelect={(d) => setTempPickerDate(d)}
+                        maxDate={undefined}
                     />
-                    <PrimaryButton
-                        variant="solid"
-                        title="Xong"
-                        onPress={() => { setShowFromPicker(false); setShowToPicker(false); setTimeout(() => setShowFilterModal(true), 350); }}
-                        style={{ marginTop: 16, width: '100%' }}
-                    />
+                    <View style={{ flexDirection: 'row', paddingHorizontal: 16, marginTop: 16, paddingBottom: insets.bottom + 8 }}>
+                        <PrimaryButton
+                            title="Xác nhận"
+                            variant="solid"
+                            icon="checkmark-circle-outline"
+                            disabled={!tempPickerDate}
+                            onPress={() => {
+                                if (tempPickerDate) {
+                                    if (showFromPicker) onFromDateSelect(tempPickerDate);
+                                    else onToDateSelect(tempPickerDate);
+                                    setTempPickerDate(null);
+                                }
+                            }}
+                            style={{ flex: 1 }}
+                        />
+                    </View>
                 </View>
             </BottomSheet>
         </View>
@@ -494,12 +525,12 @@ const s = StyleSheet.create({
         flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
+        height: 48,
         backgroundColor: '#f9fafb',
         borderWidth: 1,
         borderColor: '#f3f4f6',
         borderRadius: 12,
         paddingHorizontal: 12,
-        paddingVertical: 10,
     },
     searchInput: {
         flex: 1,
@@ -508,8 +539,8 @@ const s = StyleSheet.create({
         marginLeft: 8,
     },
     filterBtn: {
-        width: 44,
-        height: 44,
+        width: 48,
+        height: 48,
         borderRadius: 12,
         backgroundColor: '#f9fafb',
         borderWidth: 1,

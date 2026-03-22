@@ -4,7 +4,8 @@ import {
     StyleSheet, Keyboard, Alert, Modal, Platform,
 } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
-import DateTimePickerModal from "react-native-modal-datetime-picker";
+import AppCalendar from '../components/AppCalendar';
+import BottomSheet from '../components/BottomSheet';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute, CommonActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -45,6 +46,7 @@ export default function ManualAddScreen() {
         editPrescription ? new Date(editPrescription.date) : null
     );
     const [showDatePicker, setShowDatePicker] = useState(false);
+    const [tempDate, setTempDate] = useState<Date | null>(null);
     const [duration, setDuration] = useState(
         editPrescription ? String(editPrescription.duration) : ''
     );
@@ -223,7 +225,7 @@ export default function ManualAddScreen() {
                 {/* Ngày bắt đầu uống — one-tap calendar modal */}
                 <TouchableOpacity
                     style={[s.inputWrap, showError && !date && s.inputWrapError]}
-                    onPress={() => { Keyboard.dismiss(); setShowDatePicker(true); }}
+                    onPress={() => { Keyboard.dismiss(); setTempDate(date); setShowDatePicker(true); }}
                     activeOpacity={0.7}
                 >
                     <MaterialCommunityIcons name="calendar-edit" size={18} color="#9ca3af" style={s.inputIcon} />
@@ -233,24 +235,7 @@ export default function ManualAddScreen() {
                     <Ionicons name="chevron-down" size={16} color="#d1d5db" />
                 </TouchableOpacity>
 
-                <DateTimePickerModal
-                    isVisible={showDatePicker}
-                    mode="date"
-                    date={date || new Date()}
-                    onConfirm={(selectedDate) => {
-                        setShowDatePicker(false);
-                        setDate(selectedDate);
-                    }}
-                    onCancel={() => setShowDatePicker(false)}
-                    confirmTextIOS="Xong"
-                    cancelTextIOS="Hủy"
-                    locale="vi-VN"
-                    customHeaderIOS={() => (
-                        <View style={{ padding: 16, alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#f3f4f6' }}>
-                            <Text style={{ fontSize: 16, fontWeight: '700', color: '#1f2937' }}>Chọn ngày bắt đầu</Text>
-                        </View>
-                    )}
-                />
+
 
                 {/* Số ngày uống — full width */}
                 <View style={[s.inputWrap, showError && !duration.trim() && s.inputWrapError]}>
@@ -452,6 +437,37 @@ export default function ManualAddScreen() {
                     disabled={isSaving}
                 />
             </View>
+
+            {/* ══ Calendar Bottom Sheet ═══════════════════════════ */}
+            <BottomSheet
+                visible={showDatePicker}
+                onClose={() => setShowDatePicker(false)}
+                maxHeight="70%"
+            >
+                <View style={{ paddingHorizontal: 16 }}>
+                    <Text style={{ fontSize: 16, fontWeight: '700', color: '#1f2937', textAlign: 'center', marginBottom: 8 }}>Chọn ngày bắt đầu</Text>
+                    <AppCalendar
+                        mode="single"
+                        selectedDate={tempDate}
+                        onDateSelect={(d) => setTempDate(d)}
+                    />
+                    <View style={{ flexDirection: 'row', marginTop: 16, paddingBottom: insets.bottom + 8 }}>
+                        <PrimaryButton
+                            title="Xác nhận"
+                            variant="solid"
+                            icon="checkmark-circle-outline"
+                            disabled={!tempDate}
+                            onPress={() => {
+                                if (tempDate) {
+                                    setDate(tempDate);
+                                    setShowDatePicker(false);
+                                }
+                            }}
+                            style={{ flex: 1 }}
+                        />
+                    </View>
+                </View>
+            </BottomSheet>
         </View>
     );
 }

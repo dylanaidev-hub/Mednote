@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { MedicineEntry } from '../types/medicine';
+import { getMedicineIconConfig } from '../utils/medicineIconConfig';
 
 // ─── Design tokens ───────────────────────────────────────────────
 const NAVY_TEXT = '#111827';
@@ -15,21 +16,6 @@ const SESSION_THEME: Record<string, { icon: string; color: string }> = {
     'Tối': { icon: 'moon-waning-crescent', color: '#6366f1' },
 };
 
-// ─── Dynamic icon config ─────────────────────────────────────────
-function getIconConfig(med: MedicineEntry, isActive: boolean) {
-    if (med.source === 'routine') {
-        return { family: 'MaterialCommunityIcons' as const, name: 'leaf', color: '#10b981', bgColor: '#ecfdf5' };
-    }
-    const unit = (med.unit || '').toLowerCase();
-    if (unit.includes('gói')) {
-        return { family: 'Ionicons' as const, name: 'cube-outline', color: '#f59e0b', bgColor: '#fef3c7' };
-    }
-    if (unit.includes('ml') || unit.includes('lọ') || unit.includes('ống') || unit.includes('chai')) {
-        return { family: 'Ionicons' as const, name: 'water-outline', color: '#0ea5e9', bgColor: '#e0f2fe' };
-    }
-    return { family: 'MaterialCommunityIcons' as const, name: 'pill', color: isActive ? '#3b82f6' : '#9ca3af', bgColor: isActive ? '#eff6ff' : '#f3f4f6' };
-}
-
 // ─── Props ───────────────────────────────────────────────────────
 interface MedicineDetailCardProps {
     medicine: MedicineEntry;
@@ -38,7 +24,7 @@ interface MedicineDetailCardProps {
 
 // ─── Component ───────────────────────────────────────────────────
 export default function MedicineDetailCard({ medicine: med, isActive = true }: MedicineDetailCardProps) {
-    const iconCfg = getIconConfig(med, isActive);
+    const iconCfg = getMedicineIconConfig(med, isActive);
 
     // Group session times by slot
     const grouped: Record<string, string[]> = {};
