@@ -354,12 +354,24 @@ export default function Schedule() {
     useFocusEffect(
         useCallback(() => {
             const reload = async () => {
+                // Ensure dose_logs exist for selected date (generates for new meds)
                 const dateStr = formatLocalDate(selectedDate);
+                await sqlEnsureAllTodayDoseLogs(dateStr);
                 const rows = await sqlGetDoseSessionsForDate(dateStr);
                 setDoseSessions(rows);
+
+                // Refresh weekly dots (ensure + query for each day)
+                const dotCache: Record<string, any> = {};
+                for (const d of days) {
+                    const dStr = formatLocalDate(d);
+                    await sqlEnsureAllTodayDoseLogs(dStr);
+                    const dRows = await sqlGetDoseSessionsForDate(dStr);
+                    dotCache[dStr] = getDailyAggregatedStatus(dRows, dStr);
+                }
+                setDayDotsCache(dotCache);
             };
             reload();
-        }, [selectedDate])
+        }, [selectedDate, weekBase])
     );
 
     // ── AppState listener: re-fetch data when app comes back from background ──
@@ -388,24 +400,47 @@ export default function Schedule() {
         [doseSessions]
     );
 
-    // ── Smart dot indicator for calendar strip ──
-    type DotStatus = 'completed' | 'missed' | 'pending' | 'none';
-    const [dayDotsCache, setDayDotsCache] = useState<Record<string, DotStatus>>({});
+    // ── Priority-based daily status indicator for calendar strip ──
+    type DailyStatus = 'action_required' | 'in_progress' | 'all_clear' | 'none' | 'future';
+
+    const getDailyAggregatedStatus = (rows: { status: string; time?: string }[], dateStr: string): DailyStatus => {
+        if (rows.length === 0) return 'none';
+        // Future dates → no status indicator (not yet actionable)
+        const todayStr = formatLocalDate(new Date());
+        if (dateStr > todayStr) return 'future';
+        // PRIORITY 1: Any explicitly MISSED → needs action
+        if (rows.some(r => r.status === 'MISSED')) return 'action_required';
+
+        // PRIORITY 1b: Any PENDING with schedule time already passed → overdue, needs action
+        const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
+        const isDatePast = dateStr < todayStr;
+        const isDateToday = dateStr === todayStr;
+
+        if (rows.some(r => {
+            if (r.status !== 'PENDING') return false;
+            if (isDatePast) return true; // All PENDING on past dates = overdue
+            if (isDateToday && r.time) {
+                const [h, m] = r.time.split(':').map(Number);
+                return (h * 60 + m) < nowMinutes; // Schedule time already passed today
+            }
+            return false;
+        })) return 'action_required';
+
+        // PRIORITY 2: Any remaining PENDING (future time) → still in progress
+        if (rows.some(r => r.status === 'PENDING')) return 'in_progress';
+        // PRIORITY 3: All completed or skipped → all clear
+        if (rows.every(r => r.status === 'COMPLETED' || r.status === 'SKIPPED')) return 'all_clear';
+        return 'none';
+    };
+
+    const [dayDotsCache, setDayDotsCache] = useState<Record<string, DailyStatus>>({});
     useEffect(() => {
         const loadDots = async () => {
-            const cache: Record<string, DotStatus> = {};
+            const cache: Record<string, DailyStatus> = {};
             for (const d of days) {
                 const dStr = formatLocalDate(d);
                 const rows = await sqlGetDoseSessionsForDate(dStr);
-                if (rows.length === 0) {
-                    cache[dStr] = 'none';
-                } else if (rows.every(r => r.status === 'COMPLETED')) {
-                    cache[dStr] = 'completed';
-                } else if (rows.some(r => r.status === 'MISSED' || r.status === 'SKIPPED')) {
-                    cache[dStr] = 'missed';
-                } else {
-                    cache[dStr] = 'pending';
-                }
+                cache[dStr] = getDailyAggregatedStatus(rows, dStr);
             }
             setDayDotsCache(cache);
         };
@@ -417,13 +452,15 @@ export default function Schedule() {
     const isPast = (d: Date) => dayStart(d).getTime() < today.getTime();
     const isFuture = (d: Date) => dayStart(d).getTime() > today.getTime();
     const isSelected = (d: Date) => dayStart(d).getTime() === dayStart(selectedDate).getTime();
-    const getDotStatus = (d: Date): DotStatus => dayDotsCache[formatLocalDate(d)] || 'none';
+    const getDotStatus = (d: Date): DailyStatus => dayDotsCache[formatLocalDate(d)] || 'none';
 
-    const DOT_COLORS: Record<DotStatus, string> = {
-        completed: '#22C55E',
-        missed: '#EF4444',
-        pending: '#F59E0B',
-        none: 'transparent',
+    // Icon config per status
+    const DOT_ICON: Record<DailyStatus, { name: string; color: string; size?: number } | null> = {
+        action_required: { name: 'alert-circle',    color: '#EF4444' },
+        in_progress:     { name: 'ellipse',         color: '#3B82F6' },
+        all_clear:       { name: 'checkmark-circle', color: '#22C55E' },
+        none:            { name: 'ellipse-outline',  color: '#9CA3AF', size: 6 },
+        future:          null,
     };
 
     // ── Adherence computation ────────────────
@@ -594,8 +631,8 @@ export default function Schedule() {
                                 {d.getDate()}
                             </Text>
                             <View style={styles.dotRow}>
-                                {dotStatus !== 'none'
-                                    ? <View style={[styles.dot, { backgroundColor: DOT_COLORS[dotStatus] }, dimmed && { opacity: 0.45 }]} />
+                                {DOT_ICON[dotStatus]
+                                    ? <Ionicons name={DOT_ICON[dotStatus]!.name as any} size={DOT_ICON[dotStatus]!.size || 10} color={DOT_ICON[dotStatus]!.color} style={dimmed ? { opacity: 0.45 } : undefined} />
                                     : <View style={styles.dotPlaceholder} />}
                             </View>
                         </TouchableOpacity>
@@ -801,11 +838,11 @@ const styles = StyleSheet.create({
     strip: {
         flexDirection: 'row', paddingHorizontal: SP.md,
         paddingBottom: SP.md, gap: 4,
-        height: 82,
+        height: 88,
     },
     dayCell: {
         flex: 1, alignItems: 'center', justifyContent: 'center',
-        height: 66, borderRadius: 14, gap: 4,
+        height: 72, borderRadius: 14, gap: 4,
     },
     dayCellActive: { backgroundColor: '#1d4ed8' },
     dayCellTodaySelected: { borderWidth: 2, borderColor: '#93c5fd' },
@@ -815,9 +852,9 @@ const styles = StyleSheet.create({
     dateNum: { fontSize: 16, fontWeight: '700', color: '#374151' },
     dateNumActive: { color: '#ffffff', fontWeight: '900' as any },
     dateNumToday: { color: '#2563eb' },
-    dotRow: { height: 6, alignItems: 'center', justifyContent: 'center' },
+    dotRow: { height: 12, alignItems: 'center', justifyContent: 'center' },
     dot: { width: 6, height: 6, borderRadius: 3 },
-    dotPlaceholder: { width: 6, height: 6 },
+    dotPlaceholder: { width: 10, height: 10 },
 
     // Scroll
     scrollContent: { paddingHorizontal: SP.lg, paddingTop: SP.md },

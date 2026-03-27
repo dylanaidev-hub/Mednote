@@ -251,6 +251,7 @@ export default function Records() {
                             placeholderTextColor="#9ca3af"
                             value={searchQuery}
                             onChangeText={setSearchQuery}
+                            numberOfLines={1}
                         />
                         {searchQuery !== '' && (
                             <TouchableOpacity onPress={() => setSearchQuery('')}>

@@ -222,37 +222,33 @@ export async function ensureAllDoseLogsForDate(dateStr: string): Promise<void> {
             }
         }
 
-        // ★ SUPER-GUARD: Use start_date as Day-1 anchor (not created_at alone)
-        const dayOneDateStr = med.start_date || formatLocalDate(now);
-        const isDayOne = (dayOneDateStr === dateStr);
-        const isTodayRealTime = (dateStr === todayDateOnly);
         const logId = `${schedule.id}_${dateStr}`;
 
-        if (isDayOne && isTodayRealTime) {
-            const scheduleMinutes = getMinutesSinceMidnight(schedule.time);
+        // ★ Universal Past Dose Guard:
+        // If this date is the CREATION DAY of the medication,
+        // skip any schedule whose time <= the time the medication was created.
+        // This prevents past-time doses from appearing on the day a med is added.
+        // From the next day onward, all schedules generate dose_logs normally.
+        if (dateStr === todayDateOnly && med.created_at) {
+            const createdDate = parseSQLiteDate(med.created_at);
+            const createdDateStr = formatLocalDate(createdDate);
 
-            // Safe parse created_at → createdMinutes (fallback to current time if null/invalid)
-            let createdMinutes = now.getHours() * 60 + now.getMinutes();
-            if (med.created_at) {
-                const safeCreatedAt = parseSQLiteDate(med.created_at);
-                if (!isNaN(safeCreatedAt.getTime())) {
-                    createdMinutes = safeCreatedAt.getHours() * 60 + safeCreatedAt.getMinutes();
+            if (createdDateStr === dateStr) {
+                const scheduleMinutes = getMinutesSinceMidnight(schedule.time);
+                const createdMinutes = createdDate.getHours() * 60 + createdDate.getMinutes();
+
+                if (scheduleMinutes <= createdMinutes) {
+                    // Past-time schedule on creation day → DELETE existing + SKIP INSERT
+                    deleteStatements.push(
+                        `DELETE FROM dose_logs WHERE id = '${esc(logId)}'`
+                    );
+                    console.log(`MedNote: PastGuard 🛑 SKIP [${schedule.slot_key}] ${schedule.time} (${scheduleMinutes}m <= ${createdMinutes}m created)`);
+                    continue;
                 }
-            }
-
-            if (scheduleMinutes <= createdMinutes) {
-                // ★ PHASE 1: Past session → DELETE any existing bad dose_log
-                deleteStatements.push(
-                    `DELETE FROM dose_logs WHERE id = '${esc(logId)}'`
-                );
-                console.log(`MedNote: Day-1 🗑 DELETE dose_log for [${schedule.slot_key}] ${schedule.time} (${scheduleMinutes}m <= ${createdMinutes}m created)`);
-                continue; // ⛔ SKIP PHASE 2 INSERT
-            } else {
-                console.log(`MedNote: Day-1 ✅ KEEP [${schedule.slot_key}] ${schedule.time} (${scheduleMinutes}m > ${createdMinutes}m created)`);
             }
         }
 
-        // ★ PHASE 2: Valid session → create PENDING dose_log (INSERT OR IGNORE = safe)
+        // ★ Valid session → create PENDING dose_log (INSERT OR IGNORE = safe)
         insertStatements.push(
             `INSERT OR IGNORE INTO dose_logs (id, schedule_id, medication_id, scheduled_date, status)
              VALUES ('${esc(logId)}', '${esc(schedule.id)}', '${esc(schedule.medication_id)}', '${esc(dateStr)}', 'PENDING')`
