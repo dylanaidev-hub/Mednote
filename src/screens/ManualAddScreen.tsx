@@ -62,7 +62,7 @@ export default function ManualAddScreen() {
     const mealTimings = ['Trước ăn', 'Sau ăn', 'Khi đói', 'Tùy ý'];
 
     const endDate = new Date(date || new Date());
-    endDate.setDate(endDate.getDate() + (parseInt(duration) || 0));
+    endDate.setDate(endDate.getDate() + ((parseInt(duration) || 0) - 1));
 
     // ── Current med helpers ───────────────────────────────────────
     const med = medicines[currentMedIndex];

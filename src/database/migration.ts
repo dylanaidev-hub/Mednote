@@ -86,8 +86,8 @@ export async function migrateFromAsyncStorage(): Promise<boolean> {
                     const dose = parseInt(med.quantity, 10) || 1;
 
                     statements.push(
-                        `INSERT OR REPLACE INTO schedules (id, medication_id, time, dose, slot_key, unit)
-                         VALUES ('${esc(scheduleId)}', '${esc(med.id)}', '${esc(time)}', ${dose}, '${esc(normalizedSlot)}', '${esc(med.unit || 'viên')}')`
+                        `INSERT OR REPLACE INTO schedules (id, medication_id, time, dose, slot_key, unit, created_at)
+                         VALUES ('${esc(scheduleId)}', '${esc(med.id)}', '${esc(time)}', ${dose}, '${esc(normalizedSlot)}', '${esc(med.unit || 'viên')}', ${createdAtTs})`
                     );
                 }
             }

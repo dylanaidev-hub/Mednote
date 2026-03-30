@@ -542,6 +542,7 @@ const s = StyleSheet.create({
         fontSize: 15,
         color: '#111827',
         marginLeft: 8,
+        height: 46,
     },
     filterBtn: {
         width: 48,

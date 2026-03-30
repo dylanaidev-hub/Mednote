@@ -33,6 +33,7 @@ export interface ScheduleRow {
     dose: number;
     slot_key: string | null;
     unit: string | null;
+    created_at: number | null;
 }
 
 export interface PrescriptionRecord {
@@ -115,8 +116,8 @@ export async function insertPrescription(prescription: PrescriptionRecord): Prom
             const dose = parseInt(med.quantity, 10) || 1;
 
             statements.push(
-                `INSERT OR REPLACE INTO schedules (id, medication_id, time, dose, slot_key, unit)
-                 VALUES ('${esc(scheduleId)}', '${esc(med.id)}', '${esc(time)}', ${dose}, '${esc(normalizedSlot)}', '${esc(med.unit || 'viên')}')`
+                `INSERT OR REPLACE INTO schedules (id, medication_id, time, dose, slot_key, unit, created_at)
+                 VALUES ('${esc(scheduleId)}', '${esc(med.id)}', '${esc(time)}', ${dose}, '${esc(normalizedSlot)}', '${esc(med.unit || 'viên')}', ${Date.now()})`
             );
 
             // ── Day-1 dose_log creation (Minutes-Since-Midnight comparison) ──
@@ -208,8 +209,8 @@ export async function updatePrescription(prescription: PrescriptionRecord): Prom
             const dose = parseInt(med.quantity, 10) || 1;
 
             statements.push(
-                `INSERT OR REPLACE INTO schedules (id, medication_id, time, dose, slot_key, unit)
-                 VALUES ('${esc(scheduleId)}', '${esc(med.id)}', '${esc(time)}', ${dose}, '${esc(normalizedSlot)}', '${esc(med.unit || 'viên')}')`
+                `INSERT OR REPLACE INTO schedules (id, medication_id, time, dose, slot_key, unit, created_at)
+                 VALUES ('${esc(scheduleId)}', '${esc(med.id)}', '${esc(time)}', ${dose}, '${esc(normalizedSlot)}', '${esc(med.unit || 'viên')}', ${Date.now()})`
             );
 
             // Day-1 dose_log creation

@@ -32,7 +32,7 @@ export async function getDB(): Promise<SQLite.SQLiteDatabase> {
 }
 
 // Current schema version — bump this when adding new migrations
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 /**
  * Initialize the database with versioned migrations.
@@ -128,6 +128,26 @@ export async function initDB(): Promise<void> {
         }
 
         currentVersion = 3;
+    }
+
+    // ── Migration v3 → v4: Add created_at to schedules ───────
+    if (currentVersion < 4) {
+        console.log('MedNote DB: Running migration v3 → v4 (schedules.created_at)');
+
+        try {
+            await db.execAsync(`ALTER TABLE schedules ADD COLUMN created_at INTEGER DEFAULT 0`);
+        } catch {
+            // Column already exists — safe to ignore
+        }
+
+        // Backfill existing schedules with their medication's created_at
+        await db.execAsync(
+            `UPDATE schedules SET created_at = (
+                SELECT m.created_at FROM medications m WHERE m.id = schedules.medication_id
+            ) WHERE created_at = 0 OR created_at IS NULL`
+        );
+
+        currentVersion = 4;
     }
 
     // ── Future migrations go here ────────────────────────────

@@ -197,8 +197,8 @@ export async function ensureAllDoseLogsForDate(dateStr: string): Promise<void> {
 
     // Get all schedules for these meds
     const medIds = meds.map(m => `'${esc(m.id)}'`).join(',');
-    const schedules = await db.getAllAsync<{ id: string; medication_id: string; time: string; slot_key: string }>(
-        `SELECT id, medication_id, time, slot_key FROM schedules WHERE medication_id IN (${medIds})`
+    const schedules = await db.getAllAsync<{ id: string; medication_id: string; time: string; slot_key: string; created_at: number }>(
+        `SELECT id, medication_id, time, slot_key, created_at FROM schedules WHERE medication_id IN (${medIds})`
     );
 
     const insertStatements: string[] = [];
@@ -224,25 +224,22 @@ export async function ensureAllDoseLogsForDate(dateStr: string): Promise<void> {
 
         const logId = `${schedule.id}_${dateStr}`;
 
-        // ★ Universal Past Dose Guard:
-        // If this date is the CREATION DAY of the medication,
-        // skip any schedule whose time <= the time the medication was created.
-        // This prevents past-time doses from appearing on the day a med is added.
-        // From the next day onward, all schedules generate dose_logs normally.
-        if (dateStr === todayDateOnly && med.created_at) {
-            const createdDate = parseSQLiteDate(med.created_at);
-            const createdDateStr = formatLocalDate(createdDate);
+        // ★ Universal Past Dose Guard (based on SCHEDULE's created_at):
+        // If this schedule was created TODAY and its time <= the creation time → skip.
+        // This works for BOTH new prescriptions AND adding new schedules to old prescriptions.
+        if (dateStr === todayDateOnly && schedule.created_at) {
+            const schedCreatedDate = new Date(schedule.created_at);
+            const schedCreatedDateStr = formatLocalDate(schedCreatedDate);
 
-            if (createdDateStr === dateStr) {
+            if (schedCreatedDateStr === dateStr) {
                 const scheduleMinutes = getMinutesSinceMidnight(schedule.time);
-                const createdMinutes = createdDate.getHours() * 60 + createdDate.getMinutes();
+                const createdMinutes = schedCreatedDate.getHours() * 60 + schedCreatedDate.getMinutes();
 
                 if (scheduleMinutes <= createdMinutes) {
-                    // Past-time schedule on creation day → DELETE existing + SKIP INSERT
                     deleteStatements.push(
                         `DELETE FROM dose_logs WHERE id = '${esc(logId)}'`
                     );
-                    console.log(`MedNote: PastGuard 🛑 SKIP [${schedule.slot_key}] ${schedule.time} (${scheduleMinutes}m <= ${createdMinutes}m created)`);
+                    console.log(`MedNote: PastGuard 🛑 SKIP [${schedule.slot_key}] ${schedule.time} (${scheduleMinutes}m <= ${createdMinutes}m sched_created)`);
                     continue;
                 }
             }

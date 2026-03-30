@@ -411,7 +411,16 @@ export default function Schedule() {
         // PRIORITY 1: Any explicitly MISSED → needs action
         if (rows.some(r => r.status === 'MISSED')) return 'action_required';
 
-        // PRIORITY 1b: Any PENDING with schedule time already passed → overdue, needs action
+        // PRIORITY 1b: PENDING past session deadline → overdue, needs action
+        // Each session has a deadline (end of the dosing window), not just the exact schedule time
+        const SESSION_DEADLINES: Record<string, number> = {
+            'sáng': 720,    // 12:00
+            'trưa': 840,    // 14:00
+            'chiều': 1080,  // 18:00
+            'tối': 1439,    // 23:59
+        };
+        const FALLBACK_GRACE_MINUTES = 120; // 2 hours grace if no slot_key match
+
         const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
         const isDatePast = dateStr < todayStr;
         const isDateToday = dateStr === todayStr;
@@ -419,9 +428,17 @@ export default function Schedule() {
         if (rows.some(r => {
             if (r.status !== 'PENDING') return false;
             if (isDatePast) return true; // All PENDING on past dates = overdue
-            if (isDateToday && r.time) {
-                const [h, m] = r.time.split(':').map(Number);
-                return (h * 60 + m) < nowMinutes; // Schedule time already passed today
+            if (isDateToday) {
+                const slotKey = ((r as any).slot_key || '').toLowerCase();
+                const deadline = SESSION_DEADLINES[slotKey];
+                if (deadline !== undefined) {
+                    return nowMinutes > deadline; // Past session deadline
+                }
+                // Fallback: schedule time + 120 min grace
+                if (r.time) {
+                    const [h, m] = r.time.split(':').map(Number);
+                    return (h * 60 + m) + FALLBACK_GRACE_MINUTES < nowMinutes;
+                }
             }
             return false;
         })) return 'action_required';
