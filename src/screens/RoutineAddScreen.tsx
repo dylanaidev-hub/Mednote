@@ -395,7 +395,7 @@ const s = StyleSheet.create({
     // Inputs
     inputWrap: {
         flexDirection: 'row', alignItems: 'center',
-        backgroundColor: '#ffffff', borderRadius: 14, borderWidth: 1, borderColor: '#e5e7eb',
+        backgroundColor: '#ffffff', borderRadius: 16, borderWidth: 1, borderColor: '#f1f5f9',
         paddingHorizontal: 14, marginBottom: SPACING.md, // 16px between inputs
     },
     inputWrapError: { borderColor: '#ef4444', backgroundColor: '#fff5f5' },

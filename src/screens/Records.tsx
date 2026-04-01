@@ -245,14 +245,24 @@ export default function Records() {
                 <View style={s.searchRow}>
                     <View style={s.searchContainer}>
                         <Ionicons name="search-outline" size={18} color="#9ca3af" />
-                        <TextInput
-                            style={s.searchInput}
-                            placeholder="Tìm theo bệnh án, bệnh viện, thuốc..."
-                            placeholderTextColor="#9ca3af"
-                            value={searchQuery}
-                            onChangeText={setSearchQuery}
-                            numberOfLines={1}
-                        />
+                        <View style={s.searchInputWrap}>
+                            {searchQuery === '' && (
+                                <Text
+                                    style={s.searchPlaceholder}
+                                    numberOfLines={1}
+                                    ellipsizeMode="tail"
+                                    pointerEvents="none"
+                                >
+                                    Tìm theo bệnh án, bệnh viện, thuốc...
+                                </Text>
+                            )}
+                            <TextInput
+                                style={s.searchInput}
+                                placeholderTextColor="#9ca3af"
+                                value={searchQuery}
+                                onChangeText={setSearchQuery}
+                            />
+                        </View>
                         {searchQuery !== '' && (
                             <TouchableOpacity onPress={() => setSearchQuery('')}>
                                 <Ionicons name="close-circle" size={18} color="#9ca3af" />
@@ -537,11 +547,23 @@ const s = StyleSheet.create({
         borderRadius: 12,
         paddingHorizontal: 12,
     },
+    searchInputWrap: {
+        flex: 1,
+        justifyContent: 'center',
+        marginLeft: 8,
+        height: 46,
+    },
+    searchPlaceholder: {
+        position: 'absolute',
+        fontSize: 15,
+        color: '#9ca3af',
+        left: 0,
+        right: 0,
+    },
     searchInput: {
         flex: 1,
         fontSize: 15,
         color: '#111827',
-        marginLeft: 8,
         height: 46,
     },
     filterBtn: {

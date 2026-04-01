@@ -12,7 +12,7 @@ const GRAY_100 = '#E5E7EB';
 const SESSION_THEME: Record<string, { icon: string; color: string }> = {
     'Sáng': { icon: 'weather-sunny', color: '#f59e0b' },
     'Trưa': { icon: 'weather-partly-cloudy', color: '#f97316' },
-    'Chiều': { icon: 'weather-sunset', color: '#ef4444' },
+    'Chiều': { icon: 'weather-sunset', color: '#EA580C' },
     'Tối': { icon: 'moon-waning-crescent', color: '#6366f1' },
 };
 
@@ -39,22 +39,17 @@ export default function MedicineDetailCard({ medicine: med, isActive = true }: M
         <View
             style={{
                 backgroundColor: '#fff',
-                borderRadius: 24,
-                padding: 24,
+                borderRadius: 16,
+                padding: 16,
                 borderWidth: 1,
-                borderColor: GRAY_100,
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.04,
-                shadowRadius: 8,
-                elevation: 2,
+                borderColor: '#f1f5f9',
             }}
         >
             {/* ── Header: Icon + Name + Dosage ── */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
                 <View style={{
-                    width: 56, height: 56, borderRadius: 18,
-                    alignItems: 'center', justifyContent: 'center', marginRight: 16,
+                    width: 48, height: 48, borderRadius: 14,
+                    alignItems: 'center', justifyContent: 'center', marginRight: 12,
                     backgroundColor: iconCfg.bgColor,
                 }}>
                     {iconCfg.family === 'Ionicons' ? (
@@ -80,8 +75,8 @@ export default function MedicineDetailCard({ medicine: med, isActive = true }: M
                                 <MaterialCommunityIcons name="silverware-fork-knife" size={18} color="#4B5563" style={{ marginRight: 8 }} />
                                 <Text style={{ fontSize: 15, fontWeight: '700', color: '#4B5563' }}>Cách uống</Text>
                             </View>
-                            <View style={{ backgroundColor: '#F9FAFB', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12 }}>
-                                <Text style={{ fontSize: 15, fontWeight: '700', color: NAVY_TEXT }}>{med.mealTiming}</Text>
+                            <View style={{ backgroundColor: '#EFF6FF', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12 }}>
+                                <Text style={{ fontSize: 15, fontWeight: '700', color: '#1D4ED8' }}>{med.mealTiming}</Text>
                             </View>
                         </View>
                         <View style={{ height: 1, backgroundColor: '#F3F4F6', marginVertical: 12 }} />
@@ -95,7 +90,7 @@ export default function MedicineDetailCard({ medicine: med, isActive = true }: M
                         <View key={session} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
                             <View style={{ flexDirection: 'row', alignItems: 'center', paddingTop: 4 }}>
                                 <MaterialCommunityIcons name={theme.icon as any} size={18} color={theme.color} style={{ marginRight: 8 }} />
-                                <Text style={{ fontSize: 15, fontWeight: '700', color: theme.color }}>{session}</Text>
+                                <Text style={{ fontSize: 15, fontWeight: '700', color: '#4B5563' }}>{session}</Text>
                             </View>
                             <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 6, paddingLeft: 16 }}>
                                 {times.sort().map((time, tIdx) => (

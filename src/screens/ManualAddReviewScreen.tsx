@@ -151,7 +151,7 @@ export default function ManualAddReviewScreen() {
             {/* ══ Sticky Bottom CTA ═════════════════════════════════ */}
             <View style={[s.footer, { paddingBottom: Math.max(insets.bottom, 20) }]}>
                 <PrimaryButton
-                    title={saving ? 'Đang thiết lập...' : 'Hoàn tất lưu thủ công'}
+                    title={saving ? 'Đang thiết lập...' : 'Xác nhận & Lưu'}
                     icon="checkmark-circle"
                     onPress={handleFinalSave}
                     loading={saving}
@@ -193,10 +193,9 @@ const s = StyleSheet.create({
 
     // ── Overview Card ─────────────────────────────────────────────
     overviewCard: {
-        backgroundColor: '#ffffff', borderRadius: 18,
-        borderWidth: 1, borderColor: '#e5e7eb',
-        padding: SP.lg, marginBottom: SP.xl,
-        shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 8, elevation: 2,
+        backgroundColor: '#ffffff', borderRadius: 16,
+        borderWidth: 1, borderColor: '#f1f5f9',
+        padding: SP.md, marginBottom: SP.xl,
     },
     overviewHeaderRow: {
         flexDirection: 'row', alignItems: 'center',

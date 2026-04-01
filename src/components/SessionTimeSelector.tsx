@@ -347,11 +347,9 @@ const s = StyleSheet.create({
 
     // Session card — wraps primary + sub-times + add button
     sessionCard: {
-        backgroundColor: '#fff', borderRadius: 12,
+        backgroundColor: '#fff', borderRadius: 16,
         borderWidth: 1, borderColor: '#f1f5f9',
-        paddingHorizontal: 12, paddingTop: 10, paddingBottom: 6,
-        shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05, shadowRadius: 2, elevation: 2,
+        padding: 16,
     },
     mainRow: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
