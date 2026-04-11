@@ -13,7 +13,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.MedNote"
+      "bundleIdentifier": "com.saysua.mednote"
     },
     "android": {
       "adaptiveIcon": {
@@ -21,7 +21,7 @@
         "foregroundImage": "./assets/android-icon-foreground.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.MedNote",
+      "package": "com.saysua.mednote",
       "permissions": [
         "RECEIVE_BOOT_COMPLETED",
         "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",

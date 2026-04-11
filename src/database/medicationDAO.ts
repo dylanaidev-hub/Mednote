@@ -151,7 +151,7 @@ export async function insertPrescription(prescription: PrescriptionRecord): Prom
     }
 }
 
-// ─── UPDATE (Safe Edit — preserves COMPLETED dose_logs) ─────────
+// ─── UPDATE (Safe Edit — preserves COMPLETED + past PENDING dose_logs) ──
 
 export async function updatePrescription(prescription: PrescriptionRecord): Promise<void> {
     const db = await getDB();
@@ -160,6 +160,19 @@ export async function updatePrescription(prescription: PrescriptionRecord): Prom
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
     const type = prescription.duration === 999 ? 'routine' : 'prescription';
     const imagesJson = prescription.images ? JSON.stringify(prescription.images) : '';
+
+    // ★ Step 0: Snapshot existing schedule created_at values BEFORE any deletes.
+    //   This makes schedule.created_at IMMUTABLE across edits.
+    const allMedIds = prescription.medicines.map(m => `'${esc(m.id)}'`).join(',');
+    const existingSchedules = allMedIds
+        ? await db.getAllAsync<{ id: string; created_at: number }>(
+              `SELECT id, created_at FROM schedules WHERE medication_id IN (${allMedIds})`
+          )
+        : [];
+    const scheduleCreatedAtMap = new Map<string, number>();
+    existingSchedules.forEach(s => {
+        if (s.created_at) scheduleCreatedAtMap.set(s.id, s.created_at);
+    });
 
     const statements: string[] = [];
 
@@ -177,16 +190,18 @@ export async function updatePrescription(prescription: PrescriptionRecord): Prom
                      '${esc(prescription.id)}', '${esc(prescription.hospital)}', ${recordTitleSql}, ${prescription.duration}, '${esc(prescription.date)}', '${esc(imagesJson)}', '${esc(med.note || '')}', ${weekdaysSql}, '${esc(med.mealTiming || '')}')`
         );
 
-        // Step 2: DELETE old schedules for this med
+        // Step 2: DELETE old schedules for this med (will be re-created with preserved created_at)
         statements.push(
             `DELETE FROM schedules WHERE medication_id = '${esc(med.id)}'`
         );
 
-        // Step 3: DELETE only PENDING future dose_logs (PROTECT COMPLETED!)
+        // Step 3: DELETE PENDING dose_logs ONLY for FUTURE dates (strictly after today).
+        //   ★ Today's dose_logs are NOT touched here. They are handled surgically per-schedule below.
+        //   This PRESERVES all past-time PENDING logs for today (buổi đã qua).
         statements.push(
             `DELETE FROM dose_logs
              WHERE medication_id = '${esc(med.id)}'
-             AND scheduled_date >= '${esc(todayStr)}'
+             AND scheduled_date > '${esc(todayStr)}'
              AND status = 'PENDING'`
         );
 
@@ -199,7 +214,7 @@ export async function updatePrescription(prescription: PrescriptionRecord): Prom
         // Sort sessionTimes entries by time value (ascending) for consistent processing
         const sortedEntries = Object.entries(sessionTimes).sort((a, b) => a[1].localeCompare(b[1]));
 
-        // Step 4: Re-create schedules + Day-1 dose_logs (same logic as insertPrescription)
+        // Step 4: Re-create schedules + surgical dose_log management
         for (const [slot, time] of sortedEntries) {
             const normalizedSlot = normalizeSlotKey(slot);
             const isSubTime = slot.includes('_sub_');
@@ -208,26 +223,33 @@ export async function updatePrescription(prescription: PrescriptionRecord): Prom
                 : `${med.id}_${normalizedSlot}`;
             const dose = parseInt(med.quantity, 10) || 1;
 
+            // ★ FIX: Preserve original created_at (IMMUTABLE). Only new schedules get Date.now().
+            const originalCreatedAt = scheduleCreatedAtMap.get(scheduleId) || Date.now();
+
             statements.push(
                 `INSERT OR REPLACE INTO schedules (id, medication_id, time, dose, slot_key, unit, created_at)
-                 VALUES ('${esc(scheduleId)}', '${esc(med.id)}', '${esc(time)}', ${dose}, '${esc(normalizedSlot)}', '${esc(med.unit || 'viên')}', ${Date.now()})`
+                 VALUES ('${esc(scheduleId)}', '${esc(med.id)}', '${esc(time)}', ${dose}, '${esc(normalizedSlot)}', '${esc(med.unit || 'viên')}', ${originalCreatedAt})`
             );
 
-            // Day-1 dose_log creation
+            // Dose_log management for today
             if (skipToday) continue;
 
             const scheduleMinutes = getMinutesSinceMidnight(time);
 
-            // Check if a COMPLETED log already exists for today (don't overwrite)
             if (scheduleMinutes > currentMinutes) {
+                // ★ FUTURE session today: Delete existing PENDING, then recreate.
                 const logId = `${scheduleId}_${todayStr}`;
+                statements.push(
+                    `DELETE FROM dose_logs WHERE id = '${esc(logId)}' AND status = 'PENDING'`
+                );
                 statements.push(
                     `INSERT OR IGNORE INTO dose_logs (id, schedule_id, medication_id, scheduled_date, status)
                      VALUES ('${esc(logId)}', '${esc(scheduleId)}', '${esc(med.id)}', '${esc(todayStr)}', 'PENDING')`
                 );
-                console.log(`MedNote: Edit Day-1 ✅ ${med.name} [${normalizedSlot}] ${time} → PENDING today`);
+                console.log(`MedNote: Edit ✅ ${med.name} [${normalizedSlot}] ${time} → PENDING today (future)`);
             } else {
-                console.log(`MedNote: Edit Day-1 ⏭ ${med.name} [${normalizedSlot}] ${time} → SKIP (past)`);
+                // ★ PAST session today: DO NOT TOUCH. Preserve existing dose_log (PENDING/COMPLETED/MISSED).
+                console.log(`MedNote: Edit 🔒 ${med.name} [${normalizedSlot}] ${time} → PRESERVED (past, untouched)`);
             }
         }
     }

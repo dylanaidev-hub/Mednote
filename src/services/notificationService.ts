@@ -85,15 +85,18 @@ Notifications.setNotificationHandler({
 
 
 
-// Normalize slot key to capitalized form
+// Normalize slot key to capitalized form (strips _sub_ suffixes from sub-time keys)
 function normalizeSlotKey(key: string): string {
+    // Strip '_sub_timestamp' suffix if present, then lowercase for matching
+    const cleanKey = key.split('_sub_')[0].toLowerCase();
+
     const map: Record<string, string> = {
         'sáng': 'Sáng', 'Sáng': 'Sáng',
         'trưa': 'Trưa', 'Trưa': 'Trưa',
         'chiều': 'Chiều', 'Chiều': 'Chiều',
         'tối': 'Tối', 'Tối': 'Tối',
     };
-    return map[key] || key;
+    return map[cleanKey] || key;
 }
 
 // ─── Generate deterministic notification ID ─────────────────────
