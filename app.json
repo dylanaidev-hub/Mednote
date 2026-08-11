@@ -2,7 +2,7 @@
   "expo": {
     "name": "MedNote",
     "slug": "MedNote",
-    "version": "2.1.0",
+    "version": "2.1.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -13,7 +13,13 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.saysua.mednote"
+      "bundleIdentifier": "com.saysua.mednote",
+      "buildNumber": "3",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "MedNote uses your location to provide real-time local weather updates and send you timely, weather-based health reminders.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "MedNote uses your location to provide real-time local weather updates and send you timely, weather-based health reminders.",
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
